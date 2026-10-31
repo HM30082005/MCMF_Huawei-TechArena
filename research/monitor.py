@@ -35,8 +35,12 @@ def notify(state, key, text):
     """Send each distinct alert once."""
     if state['sent'].get(key) == text:
         return
-    subprocess.run(['hermes', 'send', '-t', 'telegram', text], capture_output=True, timeout=60)
-    state['sent'][key] = text
+    try:
+        sent = subprocess.run(['hermes', 'send', '-t', 'telegram', text], capture_output=True, timeout=60).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        sent = False  # A failed alert must never stop scoring; retried on the next tick.
+    if sent:
+        state['sent'][key] = text
 
 
 def integrity():
