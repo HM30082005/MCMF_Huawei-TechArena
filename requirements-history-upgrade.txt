@@ -1,2 +1,0 @@
--r requirements-strategy2.txt
-lightgbm==4.7.0

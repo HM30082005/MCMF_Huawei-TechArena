@@ -24,7 +24,7 @@ from torch.nn import functional as F
 import strategy1 as common
 from strategy2 import atomic_json, atomic_npy, rank_within_event
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'artifacts' / 'history_upgrade'
 VERSION = 1
 START = common.utc_stamp('2025-01-20')
@@ -450,7 +450,7 @@ def run_trees(phase,args):
     # Use the bundled runtime without importing PyTorch in the LightGBM process.
     runtime = Path(torch.__file__).resolve().parent/'lib'
     env['DYLD_LIBRARY_PATH'] = str(runtime)+(os.pathsep+env['DYLD_LIBRARY_PATH'] if env.get('DYLD_LIBRARY_PATH') else '')
-    subprocess.run([sys.executable,str(ROOT/'history_upgrade_trees.py'),phase,'--threads',str(args.threads)],env=env,check=True)
+    subprocess.run([sys.executable,str(Path(__file__).resolve().parent/'history_upgrade_trees.py'),phase,'--threads',str(args.threads)],env=env,check=True)
 
 
 def run(args):

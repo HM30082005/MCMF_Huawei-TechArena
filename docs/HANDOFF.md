@@ -25,7 +25,7 @@ The instructions say that only public leaderboard scores update during Phase
 | Official AUC, user reported | **0.816323** |
 | January 26 local confirmation AUC | **0.8225077648886067** |
 | Local confirmation log loss | 0.1907389450310171 |
-| Durable official-score record | `analysis/official_scores.json` |
+| Durable official-score record | `results/official_scores.json` |
 
 The local score exceeds the official score by 0.006184765. This is one
 comparison across different samples and time distributions, not a correction
@@ -101,7 +101,7 @@ one. Submit exactly `rowid,predicted_probability`, one finite probability in
 [0, 1] for every evaluation row. Public/private rows are randomly partitioned;
 final ranking uses private AUC. The stated allowance is ten uploads per team
 per day. See the actual
-[competition instructions](</Users/mihailharetonenko/Hackathons/Huwawei Tech Arena/INSTRUCTIONS.md>)
+[competition instructions](../INSTRUCTIONS.md)
 before changing the task assumptions.
 
 ## 3. What has actually been run
@@ -150,9 +150,9 @@ Its official score is unknown; do not assign 0.816323 to both files.
 ### Representation and objective
 
 The main implementation is
-[history_upgrade.py](</Users/mihailharetonenko/Hackathons/Huwawei Tech Arena/history_upgrade.py>),
+[src/history_upgrade.py](../src/history_upgrade.py),
 with trees fitted by
-[history_upgrade_trees.py](</Users/mihailharetonenko/Hackathons/Huwawei Tech Arena/history_upgrade_trees.py>).
+[src/history_upgrade_trees.py](../src/history_upgrade_trees.py).
 For one model run:
 
 ```text
@@ -260,7 +260,7 @@ Studied clone: `external/techarena2026-atu`, pinned at
 The clone is ignored by our parent Git repository and was left unchanged.
 Our numerical implementation is separate; the upstream pipeline was studied,
 not retrained as-is. See our detailed
-[source study](</Users/mihailharetonenko/Hackathons/Huwawei Tech Arena/analysis/REFERENCE_SOLUTION_STUDY.md>).
+[source study](REFERENCE_SOLUTION_STUDY.md).
 That study predates implementation of our upgrade; its suggested main changes
 have now been completed.
 
@@ -367,7 +367,7 @@ Current specific hazards:
   Extract a reusable behavior-only builder. Compare its retained feature
   arrays with the baseline before accepting the refactor.
 - Re-running the current exporter regenerates `results.json` and can reset
-  official-score fields. `analysis/official_scores.json` is the durable
+  official-score fields. `results/official_scores.json` is the durable
   source of truth; reattach a score only when the exported CSV hash matches.
 
 Add focused checks for these contracts. Do not change model math while
@@ -706,14 +706,14 @@ decision_and_reason: ...
 | Files | Purpose |
 |---|---|
 | `INSTRUCTIONS.md`, `README.md`, this file | Task contract and continuation context |
-| `analysis/official_scores.json` | Durable official result with CSV identity |
-| `history_upgrade.py`, `history_upgrade_trees.py`, `requirements-history-upgrade.txt` | Current best pipeline |
-| `strategy1.py`, `strategy2.py`, their requirements files | Shared helpers and current feature-cache dependency |
-| `test_strategy1.py`, `test_strategy2.py`, `test_history_upgrade.py` | Twenty existing unit checks |
+| `results/official_scores.json` | Durable official result with CSV identity |
+| `src/history_upgrade.py`, `src/history_upgrade_trees.py`, `requirements/history-upgrade.txt` | Current best pipeline |
+| `src/strategy1.py`, `src/strategy2.py`, their requirements files | Shared helpers and current feature-cache dependency |
+| `tests/test_strategy1.py`, `tests/test_strategy2.py`, `tests/test_history_upgrade.py` | Twenty existing unit checks |
 | `analysis/profile_data.py`, `analysis/study.py`, `analysis/spectral_probe.py` | Parsing, dataset study, spectral exploration |
-| `analysis/*.json`, `analysis/STRATEGY.md`, `analysis/REFERENCE_SOLUTION_STUDY.md` | Profiles, audits, original plan, reference study |
-| `HISTORY_UPGRADE_RESULTS.md`, `STRATEGY1_RESULTS.md`, `STRATEGY2_RESULTS.md`, `CTR_BENCHMARK_RESULTS.md` | Detailed experiment provenance |
-| `benchmark_ctr.py`, `requirements-ctr-benchmark.txt` | Actual upstream model benchmark |
+| `analysis/*.json`, `docs/STRATEGY.md`, `docs/REFERENCE_SOLUTION_STUDY.md` | Profiles, audits, original plan, reference study |
+| `docs/experiments/history-upgrade.md`, `docs/experiments/strategy1.md`, `docs/experiments/strategy2.md`, `docs/experiments/ctr-benchmark.md` | Detailed experiment provenance |
+| `src/benchmark_ctr.py`, `requirements/ctr-benchmark.txt` | Actual upstream model benchmark |
 
 Preserve existing local work, including `submission_strategy1.csv.zip`.
 Git ignores raw datasets, `.venv`, analysis caches, most artifacts, and the
@@ -792,20 +792,20 @@ worker directly without that environment may fail on macOS.
 cd '/Users/mihailharetonenko/Hackathons/Huwawei Tech Arena'
 # If no environment exists, create a Python 3.12 environment first:
 uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python -r requirements-history-upgrade.txt
+uv pip install --python .venv/bin/python -r requirements/history-upgrade.txt
 
 # Run only if the validated encoded data cache is absent:
 .venv/bin/python analysis/profile_data.py
 
 # Current dependency: needed only if strategy-2 feature caches are absent.
 # This also prepares old MF outputs; T1 should remove that unnecessary cost.
-OPENBLAS_NUM_THREADS=2 .venv/bin/python strategy2.py prepare --device auto
+OPENBLAS_NUM_THREADS=2 .venv/bin/python src/strategy2.py prepare --device auto
 
-.venv/bin/python -m unittest test_strategy1 test_strategy2 test_history_upgrade -v
+.venv/bin/python -m unittest tests.test_strategy1 tests.test_strategy2 tests.test_history_upgrade -v
 
 # Existing baseline recipe. Preserve its directory first; do not use this
 # fixed-directory command for modified experiments until T1 is implemented.
-OPENBLAS_NUM_THREADS=2 .venv/bin/python history_upgrade.py --device auto
+OPENBLAS_NUM_THREADS=2 .venv/bin/python src/history_upgrade.py --device auto
 ```
 
 Skip environment creation when `.venv` already exists. Full baseline training
@@ -838,7 +838,7 @@ documentation and recording a result, not new experiment execution.
 
 ## 11. Suggested prompt for the next development session
 
-> Continue this TechArena project using CLAUDE_HANDOFF.md as the current state.
+> Continue this TechArena project using docs/HANDOFF.md as the current state.
 > Our user-reported official baseline is 0.816323 AUC for the exact LightGBM
 > CSV with SHA-256 6137599051cfac43a71ec5ed62a96c27deaba4085e0ecaf23252bc46430cb184.
 > First inspect the working tree and available artifacts, preserve that run,

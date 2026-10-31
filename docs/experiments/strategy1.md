@@ -1,6 +1,6 @@
 # Strategy 1: trained supervised history factorization
 
-Implemented in `strategy1.py` and trained locally on October 30, 2026 using the
+Implemented in `src/strategy1.py` and trained locally on October 30, 2026 using the
 Mac's Apple M5 Pro GPU. The selected model has **128-dimensional embeddings** and
 uses **two supervised epochs** after fitting-only spectral initialization.
 
@@ -109,9 +109,9 @@ was made, and **official evaluation AUC is unknown**.
 
 ## Files and reproduction
 
-- `strategy1.py`: training, validation, model selection, prediction, CSV checks.
-- `test_strategy1.py`: focused correctness tests.
-- `requirements-strategy1.txt`: exact installed numerical/training dependencies.
+- `src/strategy1.py`: training, validation, model selection, prediction, CSV checks.
+- `tests/test_strategy1.py`: focused correctness tests.
+- `requirements/strategy1.txt`: exact installed numerical/training dependencies.
 - `artifacts/strategy1/final_d128.pt`: trained full-data checkpoint.
 - `artifacts/strategy1/results.json`: settings, epoch curves, slices, CSV checksum.
 - `artifacts/strategy1/verification.json`: checkpoint reload verification.
@@ -123,17 +123,17 @@ The new implementation and results are local; they have not been pushed.
 
 ```sh
 uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python -r requirements-strategy1.txt
+uv pip install --python .venv/bin/python -r requirements/strategy1.txt
 .venv/bin/python analysis/profile_data.py
-.venv/bin/python -m unittest -v test_strategy1
-OPENBLAS_NUM_THREADS=2 .venv/bin/python strategy1.py train --device auto
+.venv/bin/python -m unittest -v tests.test_strategy1
+OPENBLAS_NUM_THREADS=2 .venv/bin/python src/strategy1.py train --device auto
 ```
 
 To regenerate the submission from the saved full-data checkpoint and matching
 encoded arrays without training again:
 
 ```sh
-.venv/bin/python strategy1.py predict --checkpoint artifacts/strategy1/final_d128.pt
+.venv/bin/python src/strategy1.py predict --checkpoint artifacts/strategy1/final_d128.pt
 ```
 
 PyTorch's official documentation describes

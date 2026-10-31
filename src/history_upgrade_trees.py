@@ -11,7 +11,7 @@ import numpy as np
 from scipy.stats import rankdata
 from sklearn.metrics import roc_auc_score
 
-ROOT=Path(__file__).resolve().parent
+ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'artifacts/history_upgrade'
 CACHE=ROOT/'analysis/.cache'
 

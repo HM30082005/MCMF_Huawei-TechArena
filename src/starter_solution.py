@@ -21,7 +21,7 @@ interactions directly (e.g. matrix factorization) instead of hand-combining
 independent signals like this.
 
 Usage:
-    python3 starter_solution.py --train train.csv --evaluation evaluation.csv --out submission.csv
+    python3 src/starter_solution.py --train train.csv --evaluation evaluation.csv --out submission.csv
 """
 import argparse
 import csv

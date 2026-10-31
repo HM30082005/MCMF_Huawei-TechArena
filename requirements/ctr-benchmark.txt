@@ -1,4 +1,4 @@
--r requirements-strategy1.txt
+-r strategy1.txt
 pandas==3.1.0
 scikit-learn==1.9.1
 PyYAML==6.0.3

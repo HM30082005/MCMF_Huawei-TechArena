@@ -25,7 +25,7 @@ training-seed and temporal-distribution uncertainty.
 
 ## Implementation and temporal handling
 
-[`strategy2.py`](strategy2.py) implements 66 numeric features and categorical
+[`src/strategy2.py`](../../src/strategy2.py) implements 66 numeric features and categorical
 user/item IDs. The numeric features cover smoothed item/user click rates and
 exposure counts, time-bucket and recent fitting-day rates, history length and
 diversity, repetition counts and matching-click ages, history timing, sparse
@@ -116,14 +116,14 @@ boundaries, candidate permutation behavior, empty histories, and the actual
 CatBoost quantized fitting path.
 
 ```sh
-uv pip install --python .venv/bin/python -r requirements-strategy2.txt
+uv pip install --python .venv/bin/python -r requirements/strategy2.txt
 .venv/bin/python analysis/profile_data.py
-.venv/bin/python -m unittest test_strategy1 test_strategy2 -v
-OPENBLAS_NUM_THREADS=6 .venv/bin/python strategy2.py all --device auto
+.venv/bin/python -m unittest tests.test_strategy1 tests.test_strategy2 -v
+OPENBLAS_NUM_THREADS=6 .venv/bin/python src/strategy2.py all --device auto
 ```
 
 Completed feature files and tree models are reused on rerun. Feature files and
 new checkpoints use temporary files followed by replacement; CatBoost also
 saves fitting snapshots every 30 seconds. An interrupted short embedding fit
 may need to restart. To train exclusively from completed feature caches, use
-`strategy2.py train --device cpu`. No paid compute or LLM endpoint is required.
+`src/strategy2.py train --device cpu`. No paid compute or LLM endpoint is required.

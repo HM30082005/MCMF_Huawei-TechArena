@@ -6,7 +6,7 @@ SHA-256 was verified as
 `6137599051cfac43a71ec5ed62a96c27deaba4085e0ecaf23252bc46430cb184`.
 The competition page was not independently checked; the submission ID, upload
 time, and leaderboard partition were not supplied. Durable provenance is in
-`analysis/official_scores.json`; the continuation plan is in `CLAUDE_HANDOFF.md`.
+`results/official_scores.json`; the continuation plan is in `docs/HANDOFF.md`.
 No official CatBoost score has been reported.
 
 The selected pipeline scored **0.822252 ROC AUC** on the shared January 26
@@ -48,7 +48,7 @@ empty-history slice remains weak and has considerable sampling uncertainty.
 
 This implementation follows the representation and training ideas studied in
 [the ATU reference solution](https://github.com/jancastachova/techarena2026-atu/tree/1ed9fd299e4a04352279272bd6be02ed1d08ceec).
-It is implemented in `history_upgrade.py` and `history_upgrade_trees.py` and
+It is implemented in `src/history_upgrade.py` and `src/history_upgrade_trees.py` and
 preserves the earlier strategy-1 and strategy-2 models and submissions.
 
 ## Changes implemented
@@ -172,12 +172,12 @@ are model-importance measurements, not causal attribution or independent
 ablations of the individual changes.
 
 ```sh
-uv pip install --python .venv/bin/python -r requirements-history-upgrade.txt
+uv pip install --python .venv/bin/python -r requirements/history-upgrade.txt
 .venv/bin/python analysis/profile_data.py
 # Required only if the strategy-2 base feature caches are absent:
-OPENBLAS_NUM_THREADS=2 .venv/bin/python strategy2.py prepare --device auto
-.venv/bin/python -m unittest test_strategy1 test_strategy2 test_history_upgrade -v
-OPENBLAS_NUM_THREADS=2 .venv/bin/python history_upgrade.py --device auto
+OPENBLAS_NUM_THREADS=2 .venv/bin/python src/strategy2.py prepare --device auto
+.venv/bin/python -m unittest tests.test_strategy1 tests.test_strategy2 tests.test_history_upgrade -v
+OPENBLAS_NUM_THREADS=2 .venv/bin/python src/history_upgrade.py --device auto
 ```
 
 The run uses PyTorch 2.15.0 with MPS, CatBoost 1.2.10, and LightGBM 4.7.0 on

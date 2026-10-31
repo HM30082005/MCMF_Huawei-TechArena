@@ -23,7 +23,7 @@ from torch.nn import functional as F
 
 import strategy1 as common
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'artifacts' / 'ctr_benchmark'
 VENDOR = OUT / 'vendor' / 'FuxiCTR'
 PINNED_REVISION = '183da1c944ba8930fcdcd54114837c081959d748'

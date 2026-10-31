@@ -1,6 +1,6 @@
 """Supervised history-aware logistic factorization for TechArena click prediction.
 
-Run `python strategy1.py train` for dimension selection, a locked chronological
+Run `python src/strategy1.py train` for dimension selection, a locked chronological
 confirmation, full-data fitting, and a checked submission. No evaluation labels
 are available or consumed. `predict` reloads the saved full-data checkpoint.
 """
@@ -24,7 +24,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 CACHE = ROOT / 'analysis' / '.cache'
 OUT = ROOT / 'artifacts' / 'strategy1'
 VERSION = 1

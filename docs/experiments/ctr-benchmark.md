@@ -62,14 +62,14 @@ No competition upload was performed. These files are ready for the user to uploa
 
 ## Reproduce
 
-Implementation: `benchmark_ctr.py`. Numerical records, curves, model-source hashes, selected settings, checkpoint paths, scores by user/history segment, CSV metadata, and bootstrap statistics are in `artifacts/ctr_benchmark/`. Large artifacts and the downloaded vendor repository are ignored by Git.
+Implementation: `src/benchmark_ctr.py`. Numerical records, curves, model-source hashes, selected settings, checkpoint paths, scores by user/history segment, CSV metadata, and bootstrap statistics are in `artifacts/ctr_benchmark/`. Large artifacts and the downloaded vendor repository are ignored by Git.
 
 ```sh
-uv pip install --python .venv/bin/python -r requirements-ctr-benchmark.txt
+uv pip install --python .venv/bin/python -r requirements/ctr-benchmark.txt
 git clone https://github.com/reczoo/FuxiCTR.git artifacts/ctr_benchmark/vendor/FuxiCTR
 git -C artifacts/ctr_benchmark/vendor/FuxiCTR checkout 183da1c944ba8930fcdcd54114837c081959d748
 .venv/bin/python analysis/profile_data.py
-OPENBLAS_NUM_THREADS=2 .venv/bin/python benchmark_ctr.py --device auto
+OPENBLAS_NUM_THREADS=2 .venv/bin/python src/benchmark_ctr.py --device auto
 ```
 
 Skip cloning if the pinned repository is already present. The existing project virtual environment was used for this run; no paid compute or LLM endpoint was required.

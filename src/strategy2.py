@@ -22,7 +22,7 @@ import torch
 
 import strategy1 as common
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'artifacts' / 'strategy2'
 FEATURES = OUT / 'features'
 FEATURE_VERSION = 1
