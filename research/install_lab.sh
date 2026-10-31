@@ -25,8 +25,8 @@ chmod -R a-w "$main/artifacts/history_upgrade" "$main/artifacts/strategy2"
 if [[ ! -d $lab ]]; then
   git -C "$main" worktree add -q -b hermes/research "$lab" "$branch_base"
 fi
-grep -qx '/lab/' "$(git -C "$main" rev-parse --git-common-dir)/info/exclude" 2>/dev/null \
-  || echo '/lab/' >> "$(git -C "$main" rev-parse --git-common-dir)/info/exclude"
+exclude=$(git -C "$main" rev-parse --path-format=absolute --git-common-dir)/info/exclude
+grep -qx '/lab/' "$exclude" 2>/dev/null || echo '/lab/' >> "$exclude"
 mkdir -p "$lab/artifacts" "$lab/runs" "$lab/analysis"
 ln -sfn "$main/analysis/.cache" "$lab/analysis/.cache"
 ln -sfn "$main/train.csv" "$lab/train.csv"
