@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "description": "Append-only record of competition scores, associated with exact local submission files. Keep separate from regenerable training artifacts.",
+  "scores": [
+    {
+      "id": "history-upgrade-lightgbm-2026-10-31",
+      "reported_on": "2026-10-31",
+      "report_timezone": "Europe/Dublin",
+      "submission_timestamp": null,
+      "metric": "ROC AUC",
+      "score": 0.816323,
+      "score_source": "user_reported_official_competition_result",
+      "independently_verified_on_competition_site": false,
+      "leaderboard_partition": "not specified by user",
+      "submission_id": null,
+      "model": "Historical-click upgrade: ten-seed shared-item MF plus LightGBM",
+      "submission_file": "artifacts/history_upgrade/submission_LightGBM.csv",
+      "submission_sha256": "6137599051cfac43a71ec5ed62a96c27deaba4085e0ecaf23252bc46430cb184",
+      "local_file_checksum_verified_on": "2026-10-31",
+      "rows": 529390,
+      "checkpoint": "artifacts/history_upgrade/trees/final_LightGBM_31.txt",
+      "training_results": "artifacts/history_upgrade/results.json",
+      "local_validation": {
+        "protocol": "Fit before 2025-01-26 UTC; score first event per user on 2025-01-26; exact shared confirmation rows",
+        "roc_auc": 0.8225077648886067,
+        "log_loss": 0.1907389450310171,
+        "events": 35138,
+        "rows": 351380,
+        "positive_rows": 22266
+      },
+      "notes": "File association follows the conversation about the latest LightGBM submission. The local checksum was verified; no competition receipt or submission ID was supplied. CatBoost remains the historical development-selected learner, but has no reported official score. This entry does not change that selection record."
+    }
+  ]
+}
