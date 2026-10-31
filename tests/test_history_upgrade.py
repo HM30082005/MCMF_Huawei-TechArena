@@ -110,6 +110,14 @@ class HistoryUpgradeTests(unittest.TestCase):
             for key,value in expected.state_dict().items():
                 torch.testing.assert_close(value,actual.state_dict()[key],rtol=0,atol=0)
 
+    def test_default_recipe_keeps_baseline_identity(self):
+        # Saved baseline checkpoints are keyed by this dict; new flags must not change it.
+        args=argparse.Namespace(seeds=10,steps=5000,batch_events=820)
+        self.assertEqual(upgrade.recipe(args),dict(version=1,dim=32,l2=.05,lr=.003,auxiliary_weight=.1,
+            negatives=9,history_limit=100,init_std=.05,seeds=10,steps=5000,batch_events=820,
+            event_sampling='independent uniform with replacement per seed',
+            historical_inputs='fitting histories and labels only; own query history at inference'))
+
 
 if __name__=='__main__':
     unittest.main()
