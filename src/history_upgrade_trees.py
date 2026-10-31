@@ -12,7 +12,8 @@ from scipy.stats import rankdata
 from sklearn.metrics import roc_auc_score
 
 ROOT=Path(__file__).resolve().parents[1]
-OUT=ROOT/'artifacts/history_upgrade'
+DEFAULT_OUT=ROOT/'artifacts/history_upgrade'
+OUT=DEFAULT_OUT
 CACHE=ROOT/'analysis/.cache'
 
 
@@ -163,9 +164,19 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('phase',choices=['development','confirmation','final'])
     parser.add_argument('--threads',type=int,default=12)
+    parser.add_argument('--output-dir',type=Path,default=DEFAULT_OUT)
+    parser.add_argument('--candidates',default='CatBoost:6,CatBoost:8,LightGBM:31,LightGBM:63')
     args=parser.parse_args()
     if 'torch' in sys.modules:
         raise RuntimeError('Tree worker must not import PyTorch')
+    global OUT
+    OUT=args.output_dir.resolve()
+    candidates=[]
+    for item in args.candidates.split(','):
+        kind,size=item.split(':')
+        if kind not in ('CatBoost','LightGBM'):
+            raise ValueError('Unknown tree learner: '+kind)
+        candidates.append((kind,int(size)))
     data=load_data('train')
     phase=args.phase
     start=1737331200
@@ -185,16 +196,20 @@ def main():
                 'development_validation':'First event per user Jan 24-25','confirmation_validation':'First event per user Jan 26',
                 'mf_history_training':'Fitting data only; own supplied history remains an inference input',
                 'identical_numeric_tree_inputs':True,'model_selection':'Development only'}}
-        for kind,sizes in [('CatBoost',[6,8]),('LightGBM',[31,63])]:
-            for size in sizes:
-                model,record=fit(kind,size,X,y,names,'development',args,valid=(Q,vy))
-                report['development'].append(record)
-                atomic_json(result_path,report)
-                del model
-                gc.collect()
+        for kind,size in candidates:
+            model,record=fit(kind,size,X,y,names,'development',args,valid=(Q,vy))
+            # Saved for the shared evaluator: event-major raw scores on the development rows.
+            np.savez(OUT/f'development_{kind}_{size}.npz',event_indices=ix,
+                     logits=predict(model,kind,Q,args.threads).reshape(-1,10))
+            report['development'].append(record)
+            atomic_json(result_path,report)
+            del model
+            gc.collect()
         selected=max(report['development'],key=lambda r:r['development']['roc_auc'])
         best_by_kind={kind:max([r for r in report['development'] if r['kind']==kind],key=lambda r:r['development']['roc_auc'])
-                      for kind in ['CatBoost','LightGBM']}
+                      for kind in dict.fromkeys(kind for kind,_ in candidates)}
+        with np.load(OUT/f"development_{selected['kind']}_{selected['size']}.npz") as chosen:
+            np.savez(OUT/'development_predictions.npz',event_indices=chosen['event_indices'],logits=chosen['logits'])
         selection={'selected':selected,'best_by_kind':best_by_kind,
                    'seed_selection':json.loads((OUT/'seed_selection.json').read_text()),
                    'recipe':json.loads((OUT/'recipe.json').read_text())}

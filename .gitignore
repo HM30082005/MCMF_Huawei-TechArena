@@ -16,3 +16,9 @@ __pycache__/
 # Independently cloned reference solutions.
 /external/
 *.csv.zip
+
+# Model artifacts and experiment runs stay local (research/README.md).
+/artifacts/
+/runs/
+/LEADERBOARD.md
+/.venv

@@ -25,18 +25,27 @@ import strategy1 as common
 from strategy2 import atomic_json, atomic_npy, rank_within_event
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / 'artifacts' / 'history_upgrade'
+DEFAULT_OUT = ROOT / 'artifacts' / 'history_upgrade'
+OUT = DEFAULT_OUT
 VERSION = 1
 START = common.utc_stamp('2025-01-20')
 DAY = 86400
 FIRST_DAY = 2
 PART_NAMES = ['mf_logit', 'mf_item_bias', 'mf_user_bias', 'mf_history_dot']
+TREE_CANDIDATES = 'CatBoost:6,CatBoost:8,LightGBM:31,LightGBM:63'
+# Baseline MF settings. Defaults keep recipe identities, and so saved checkpoints, unchanged.
+MF_DEFAULTS = dict(dim=32, l2=.05, lr=.003, aux_weight=.1, negatives=9, history_limit=100, init_std=.05)
+
+
+def setting(args, name):
+    return getattr(args, name, MF_DEFAULTS[name])
 
 
 def recipe(args):
-    return dict(version=VERSION, dim=32, l2=.05, lr=.003, auxiliary_weight=.1,
-                negatives=9, history_limit=100, init_std=.05, seeds=args.seeds,
-                steps=args.steps, batch_events=args.batch_events,
+    return dict(version=VERSION, dim=setting(args, 'dim'), l2=setting(args, 'l2'), lr=setting(args, 'lr'),
+                auxiliary_weight=setting(args, 'aux_weight'), negatives=setting(args, 'negatives'),
+                history_limit=setting(args, 'history_limit'), init_std=setting(args, 'init_std'),
+                seeds=args.seeds, steps=args.steps, batch_events=args.batch_events,
                 event_sampling='independent uniform with replacement per seed',
                 historical_inputs='fitting histories and labels only; own query history at inference')
 
@@ -192,7 +201,8 @@ def fit_ensemble(data, day, sizes, args):
     checkpoint = torch.load(path, map_location='cpu', weights_only=True) if path.exists() else None
     if checkpoint is not None and checkpoint['identity'] != identity:
         raise ValueError('Checkpoint recipe/data changed; use a separate output directory')
-    model = SharedHistoryEnsemble(sizes['all_users'], sizes['all_items']+1, args.seeds).to(args.device)
+    model = SharedHistoryEnsemble(sizes['all_users'], sizes['all_items']+1, args.seeds,
+                                  dim=setting(args, 'dim'), init_std=setting(args, 'init_std')).to(args.device)
     if checkpoint is not None:
         model.load_state_dict(checkpoint['model'])
         common.log(f'Reusing completed day-{day} ensemble')
@@ -201,8 +211,9 @@ def fit_ensemble(data, day, sizes, args):
     if len(clicks) and clicks['time'].max() >= cutoff:
         raise ValueError('Fitting click log crosses the model cutoff')
     n_items = sizes['all_items']+1
-    hist, lengths = long_history(data, fit, clicks, n_items)
-    ctx, ctx_len, targets = other_click_context(clicks)
+    limit, l2, negatives = setting(args, 'history_limit'), setting(args, 'l2'), setting(args, 'negatives')
+    hist, lengths = long_history(data, fit, clicks, n_items, limit)
+    ctx, ctx_len, targets = other_click_context(clicks, limit)
     provenance = dict(identity, max_fitting_event_time=int(data['time'][fit].max()),
                       unique_clicks=len(clicks), warmup_clicks=int((clicks['time'] < START).sum()),
                       max_click_time=int(clicks['time'].max()), auxiliary_examples=len(targets),
@@ -222,7 +233,7 @@ def fit_ensemble(data, day, sizes, args):
     t['cdf'] = tensor(cdf, torch.float32)
     del hist, ctx, clicks
     gc.collect()
-    optimizer = torch.optim.Adam(model.parameters(), lr=.003)
+    optimizer = torch.optim.Adam(model.parameters(), lr=setting(args, 'lr'))
     torch.manual_seed(42)
     resume_path = path.with_name(path.stem + '.resume.pt')
     start_step = 0
@@ -245,10 +256,10 @@ def fit_ensemble(data, day, sizes, args):
         components, reg = model(t['user'][ix], t['items'][ix], t['hist'][ix], t['lengths'][ix], regularize=True)
         primary = F.binary_cross_entropy_with_logits(components[..., 0], t['label'][ix], reduction='none').mean((1, 2))
         ai = torch.randint(len(targets), (args.seeds, args.batch_events), device=args.device)
-        neg = torch.searchsorted(t['cdf'], torch.rand((args.seeds, args.batch_events, 9), device=args.device), right=True)
+        neg = torch.searchsorted(t['cdf'], torch.rand((args.seeds, args.batch_events, negatives), device=args.device), right=True)
         neg = neg.clamp(max=n_items-1)
         auxiliary, a_reg = model.auxiliary(t['context'][ai], t['context_lengths'][ai], t['targets'][ai], neg)
-        losses = primary + .05*reg + .1*(auxiliary + .05*a_reg)
+        losses = primary + l2*reg + setting(args, 'aux_weight')*(auxiliary + l2*a_reg)
         optimizer.zero_grad(set_to_none=True)
         losses.sum().backward()
         optimizer.step()
@@ -280,7 +291,7 @@ def predict_components(model, query, indices, clicks, args):
     result = np.empty((args.seeds, len(indices), 10, 4), np.float32)
     for start in range(0, len(indices), 1024):
         ix = indices[start:start+1024]
-        hist, lengths = long_history(query, ix, clicks, model.n_items)
+        hist, lengths = long_history(query, ix, clicks, model.n_items, setting(args, 'history_limit'))
         def expand(value, dtype=torch.long):
             t = torch.as_tensor(np.array(value, copy=True), dtype=dtype, device=args.device)
             return t.unsqueeze(0).expand((args.seeds,) + t.shape)
@@ -408,7 +419,7 @@ def ensure_features(name, data, sizes, seeds, args):
     output = None
     for start in range(0,len(ix),2048):
         selected = ix[start:start+2048]
-        hist,lengths = long_history(data,selected,clicks,sizes['all_items']+1)
+        hist,lengths = long_history(data,selected,clicks,sizes['all_items']+1,setting(args,'history_limit'))
         values,names = upgraded_features(base[start:start+len(selected)],parts[:,start:start+len(selected)],
                              hist,lengths,data['items'][selected],keep,base_names,seeds)
         if output is None:
@@ -450,7 +461,9 @@ def run_trees(phase,args):
     # Use the bundled runtime without importing PyTorch in the LightGBM process.
     runtime = Path(torch.__file__).resolve().parent/'lib'
     env['DYLD_LIBRARY_PATH'] = str(runtime)+(os.pathsep+env['DYLD_LIBRARY_PATH'] if env.get('DYLD_LIBRARY_PATH') else '')
-    subprocess.run([sys.executable,str(Path(__file__).resolve().parent/'history_upgrade_trees.py'),phase,'--threads',str(args.threads)],env=env,check=True)
+    subprocess.run([sys.executable,str(Path(__file__).resolve().parent/'history_upgrade_trees.py'),phase,
+                    '--threads',str(args.threads),'--output-dir',str(OUT),'--candidates',args.tree_candidates],
+                   env=env,check=True)
 
 
 def run(args):
@@ -474,6 +487,9 @@ def run(args):
         ensure_features(name,data,sizes,seeds,args)
     combine_features(data,3,seeds,args)
     run_trees('development',args)
+    if args.until=='development':
+        common.log('Stopping after development as requested')
+        return
     # Model settings, seed count, and tree learner are now locked before confirmation.
     for day in [5,6]:
         ensure_parts(day,data,sizes,args)
@@ -481,6 +497,9 @@ def run(args):
         ensure_features(name,data,sizes,seeds,args)
     combine_features(data,5,seeds,args)
     run_trees('confirmation',args)
+    if args.until=='confirmation':
+        common.log('Stopping after confirmation as requested')
+        return
     ensure_parts(7,data,sizes,args)
     for name in ['day6','evaluation']:
         ensure_features(name,data,sizes,seeds,args)
@@ -489,13 +508,13 @@ def run(args):
     # Shared writer validates every output ID against the raw evaluation dataset.
     logits=np.load(OUT/'evaluation_logits.npy')
     report=json.loads((OUT/'results.json').read_text())
-    report['submission']=common.write_submission(logits,filename='artifacts/history_upgrade/submission_history_upgrade.csv')
+    report['submission']=common.write_submission(logits,filename=str(OUT/'submission_history_upgrade.csv'))
     report['comparison_submissions']={}
     for kind in report['final_models']:
         if kind!=report['confirmation']['selected_kind']:
             scores=np.load(OUT/f'evaluation_{kind}_logits.npy')
             report['comparison_submissions'][kind]=common.write_submission(scores,
-                filename=f'artifacts/history_upgrade/submission_{kind}.csv')
+                filename=str(OUT/f'submission_{kind}.csv'))
     report['recipe']=recipe(args)
     report['seed_selection']=json.loads((OUT/'seed_selection.json').read_text())
     atomic_json(OUT/'results.json',report)
@@ -510,7 +529,17 @@ def main():
     parser.add_argument('--batch-events',type=int,default=820)
     parser.add_argument('--checkpoint-every',type=int,default=500)
     parser.add_argument('--threads',type=int,default=12)
+    parser.add_argument('--output-dir',type=Path,default=DEFAULT_OUT,
+                        help='Run directory; use a new one for every changed recipe or experiment')
+    parser.add_argument('--until',choices=['development','confirmation','final'],default='final',
+                        help='Last stage to run; development is the cheap search stage')
+    parser.add_argument('--tree-candidates',default=TREE_CANDIDATES,
+                        help='Comma-separated Kind:size tree learners compared on development')
+    for name,value in MF_DEFAULTS.items():
+        parser.add_argument('--'+name.replace('_','-'),type=type(value),default=value)
     args=parser.parse_args()
+    global OUT
+    OUT=args.output_dir.resolve()
     if args.device=='auto':
         args.device='mps' if torch.backends.mps.is_available() else 'cpu'
     torch.set_num_threads(6)
