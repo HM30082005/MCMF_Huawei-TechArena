@@ -34,6 +34,9 @@ On your first turn, and whenever you are choosing a new direction, read in full:
 ## What one turn looks like
 
 1. **If the status says INTEGRITY FAILURE, stop.** Do nothing else and end the turn.
+   **The monitor status is the truth about jobs.** If it says IDLE, nothing is
+   running, whatever NOTES say. Report only what command output shows; never
+   describe an action as done unless you saw it succeed.
 2. **A job is RUNNING:** don't start another. You may analyse earlier results,
    write code for the next experiment, or update notes. Never kill a run just to
    start a different one.
@@ -61,17 +64,33 @@ On your first turn, and whenever you are choosing a new direction, read in full:
 - **Search on development only:**
   `--until development --tree-candidates LightGBM:31`. That is about 10–20
   minutes per run; the full pipeline is about 25 minutes or more.
-- **Launch only through** `research/launch.sh RUN_ID "hypothesis" -- COMMAND`,
-  with `--output-dir runs/RUN_ID`. Run IDs are short and descriptive
-  (`steps3000`, `p1-query-clicks-aux`). Every run gets a new directory; never
-  reuse or overwrite one.
+- **Launch every job with `research/launch.sh`, and nothing else.** Example:
+
+  ```sh
+  research/launch.sh t3-steps3000 "3,000 MF updates generalise better than 5,000" -- \
+    .venv/bin/python src/history_upgrade.py --output-dir runs/t3-steps3000 \
+    --steps 3000 --until development --tree-candidates LightGBM:31
+  ```
+
+  Never start training with `&`, `nohup`, `screen`, or a background or
+  asynchronous terminal process. Those processes are killed when your turn
+  ends; a run started that way on 2026-10-31 died within seconds and left no
+  log. `launch.sh` detaches the job, writes `run.json`, `log.txt`, `PID` and
+  the job lock, and waits 5 s. **A launch has happened only if `launch.sh`
+  printed `Launched ...`.** If it exits non-zero, read its output and fix the
+  cause.
+- Run IDs are short and descriptive (`t3-steps3000`, `p1-query-clicks-aux`).
+  Every run gets a new directory; never reuse or overwrite one, and never
+  create or edit `run.json` yourself.
 - **Reuse expensive caches.** If the MF recipe is unchanged (tree-only or
-  feature-only ideas), clone the baseline's MF outputs instead of refitting:
-  `mkdir -p runs/ID && cp -c -R artifacts/history_upgrade/models artifacts/history_upgrade/parts runs/ID/ && chmod -R u+w runs/ID`.
-  APFS clones cost no disk space. `launch.sh` refuses an existing directory,
-  so for such runs write `runs/ID/run.json` yourself (the fields `launch.sh`
-  writes: id, hypothesis, parent, git_commit, command, created) and launch
-  with `--resume`.
+  feature-only ideas), add `--clone-mf` before the run ID. It copies the
+  baseline's MF models and parts into the new run as APFS clones, which cost
+  no disk space, so only the new parts are computed.
+- **Paths:** your working directory is the lab root. Use relative paths
+  (`runs/...`, `src/...`, `.venv/bin/python`). The parent folder is spelled
+  `Huwawei Tech Arena`.
+- **`runs/` is never committed** (it is git-ignored). Never use `git add -f`.
+  Commit code and `research/lab/*.md` only.
 - **Pipeline code** lives in `src/`. Add new behaviour behind flags whose
   defaults keep the baseline identity
   (`tests/test_history_upgrade.py::test_default_recipe_keeps_baseline_identity`).

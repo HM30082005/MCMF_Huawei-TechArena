@@ -39,7 +39,7 @@ Runs never report their own scores.
 | `evaluate.py score RUN --store S [--confirm]` | Score a run; appends to `S/scores.jsonl`, regenerates `S/LEADERBOARD.md` |
 | `evaluate.py leaderboard --store S` | Regenerate the leaderboard |
 | `reproduce_baseline.py` | Re-predict the baseline from saved trees, check the official CSV hash, and export it as the reference run |
-| `launch.sh RUN_ID "hypothesis" -- CMD` | Start one background job (one at a time) with a recorded identity |
+| `launch.sh [--clone-mf] RUN_ID "hypothesis" -- CMD` | Start one detached job (one at a time) with a recorded identity; `--clone-mf` reuses the baseline MF |
 | `monitor.py` | Per-tick lab monitor used by the Hermes job: scoring, integrity checks, alerts |
 | `install_lab.sh MAIN_CHECKOUT` | One-time lab setup on a machine with the data and baseline artifacts |
 
