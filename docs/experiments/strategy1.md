@@ -119,7 +119,6 @@ was made, and **official evaluation AUC is unknown**.
 - `artifacts/strategy1/user_ids.json` and `item_ids.json`: encoding maps.
 
 Large model files, encoded arrays, and generated submissions are ignored by Git.
-The new implementation and results are local; they have not been pushed.
 
 ```sh
 uv venv --python 3.12 .venv

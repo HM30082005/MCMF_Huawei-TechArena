@@ -38,22 +38,16 @@ make experiments use separate directories and preserve the exact CSV, models,
 features, configuration, and predictions above. Do not overwrite them while
 trying a new seed count or training duration.
 
-Project root on the original computer:
-
-```text
-/Users/mihailharetonenko/Hackathons/Huwawei Tech Arena
-```
-
-Paths in code blocks and artifact names below are relative to that root.
-Local hyperlinks point to the original computer; adjust them on another
-machine. The main GitHub repository is
+Paths in code blocks and artifact names below are relative to the repository
+root. The main GitHub repository is
 [HM30082005/MCMF_Huawei-TechArena](https://github.com/HM30082005/MCMF_Huawei-TechArena).
-**The new model code, reports, and tests are still local, uncommitted files at
-handoff time. A clone of GitHub alone does not contain the completed work.**
-The checked-out committed revision is
-`600cb58baa398293d7458e73a7716707ba8b9d1b`; inspect `git status` and transfer the
-working files as well. No commit, push, or new competition upload was made
-while preparing this document.
+The model code, reports, and tests were uncommitted when this handoff was
+written; they have since been committed unchanged and then moved into the
+`src/`, `tests/`, `docs/`, `requirements/` and `results/` layout. This
+document's paths follow that layout. **Datasets, encoded caches, and model
+artifacts are still not in Git**: a fresh clone must download the data and
+regenerate or copy `analysis/.cache/` and `artifacts/` before reproducing
+the baseline.
 
 ## 2. The challenge and the data
 
@@ -701,7 +695,7 @@ decision_and_reason: ...
 
 ## 10. Files, environment, and reproduction
 
-### Source and reports to transfer
+### Source and reports
 
 | Files | Purpose |
 |---|---|
@@ -717,9 +711,9 @@ decision_and_reason: ...
 
 Preserve existing local work, including `submission_strategy1.csv.zip`.
 Git ignores raw datasets, `.venv`, analysis caches, most artifacts, and the
-external clone. New `.py`/report files being untracked is separate from large
-artifacts being intentionally ignored. Do not assume `git push` would transfer
-the datasets or models. Check credentials and local-only files before any
+external clone. Source and reports are tracked; large artifacts are
+intentionally ignored. Do not assume `git push` would transfer the datasets
+or models. Check credentials and local-only files before any
 future commit; do not commit secrets.
 
 Raw CSVs can be obtained from the project's
@@ -789,7 +783,7 @@ PyTorch wheel; the main script sets up its child process. Launching the tree
 worker directly without that environment may fail on macOS.
 
 ```sh
-cd '/Users/mihailharetonenko/Hackathons/Huwawei Tech Arena'
+# Run from the repository root.
 # If no environment exists, create a Python 3.12 environment first:
 uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -r requirements/history-upgrade.txt
