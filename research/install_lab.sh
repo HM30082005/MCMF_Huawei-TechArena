@@ -26,7 +26,9 @@ if [[ ! -d $lab ]]; then
   git -C "$main" worktree add -q -b hermes/research "$lab" "$branch_base"
 fi
 exclude=$(git -C "$main" rev-parse --path-format=absolute --git-common-dir)/info/exclude
-grep -qx '/lab/' "$exclude" 2>/dev/null || echo '/lab/' >> "$exclude"
+for pattern in /lab/ /AGENTS.md; do
+  grep -qx "$pattern" "$exclude" 2>/dev/null || echo "$pattern" >> "$exclude"
+done
 mkdir -p "$lab/artifacts" "$lab/runs" "$lab/analysis"
 ln -sfn "$main/analysis/.cache" "$lab/analysis/.cache"
 ln -sfn "$main/train.csv" "$lab/train.csv"
@@ -34,6 +36,7 @@ ln -sfn "$main/evaluation.csv" "$lab/evaluation.csv"
 ln -sfn "$main/artifacts/strategy2" "$lab/artifacts/strategy2"
 ln -sfn "$main/artifacts/history_upgrade" "$lab/artifacts/history_upgrade"
 ln -sfn "$main/.venv" "$lab/.venv"
+ln -sfn research/lab/AGENTS.md "$lab/AGENTS.md"  # Hermes loads AGENTS.md from the job's working directory
 
 # Frozen evaluator: a read-only copy that the monitor runs; the lab's own copy is not used for scores.
 mkdir -p "$harness/research" "$harness/analysis" "$store" "$(dirname "$monitor")"
