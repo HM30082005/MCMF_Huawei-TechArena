@@ -1,0 +1,30 @@
+{
+  "purpose": "Diagnostic of removing event-level score scale; not a retrained event-choice model",
+  "development_trials": [
+    {
+      "alpha": 0,
+      "development_auc": 0.698838767664828
+    },
+    {
+      "alpha": 0.25,
+      "development_auc": 0.6986112874689901
+    },
+    {
+      "alpha": 0.5,
+      "development_auc": 0.696916504015151
+    },
+    {
+      "alpha": 0.75,
+      "development_auc": 0.6938838210831815
+    },
+    {
+      "alpha": 1,
+      "development_auc": 0.6897100583004824
+    }
+  ],
+  "alpha_selected_on_development_only": 0,
+  "confirmation": {
+    "original_auc": 0.7268091520794114,
+    "selected_adjustment_auc": 0.7268091520794114
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "train": {
+    "warmup_history_occurrences": 6496320,
+    "warmup_event_fraction": 0.849200086193843,
+    "oldest_history_click_utc": "2025-01-06T00:00:00+00:00"
+  },
+  "evaluation": {
+    "warmup_history_occurrences": 345380,
+    "warmup_event_fraction": 0.8828840741230473,
+    "oldest_history_click_utc": "2025-01-06T00:00:00+00:00",
+    "history_clicks_at_or_after_eval_cutoff": 0,
+    "events_by_days_after_cutoff": [
+      35269,
+      8764,
+      3914,
+      2236,
+      1273,
+      898,
+      585
+    ]
+  }
+}

@@ -11,3 +11,7 @@ __pycache__/
 /evaluation.csv
 /example_submission.csv
 *.csv.gz
+/submission_strategy1.csv
+
+# Independently cloned reference solutions.
+/external/

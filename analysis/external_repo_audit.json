@@ -1,0 +1,25 @@
+{
+  "repository": "https://github.com/jancastachova/techarena2026-atu",
+  "commit": "1ed9fd299e4a04352279272bd6be02ed1d08ceec",
+  "python_files_parsed": 27,
+  "submission_checks": {
+    "11_tied_items.csv": {
+      "rows": 529390,
+      "evaluation_ids_match": true,
+      "order_matches": true,
+      "min_probability": 0.000258139,
+      "max_probability": 0.730785,
+      "sha256": "6af3e202d0de1c0e5d3a0ae5a8992f56f5f221422856190e141abe5db6a3e899"
+    },
+    "15_avg_13_15.csv": {
+      "rows": 529390,
+      "evaluation_ids_match": true,
+      "order_matches": true,
+      "min_probability": 0.000365268,
+      "max_probability": 0.730277,
+      "sha256": "208cc135a9dc9295a62ab0809864e82d31157e302e38a6e279e5b8a2402c2710"
+    }
+  },
+  "models_retrained": false,
+  "official_scores_independently_verified": false
+}
