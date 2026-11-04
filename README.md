@@ -13,6 +13,10 @@ factorisation, followed by LightGBM ([`src/history_upgrade.py`](src/history_upgr
 The exact submission checksum and score provenance are in
 [`results/official_scores.json`](results/official_scores.json).
 
+**[`docs/PROGRESS.md`](docs/PROGRESS.md) lists every direction tried, with scores
+and improvements.** The best model since this score reaches 0.8247 locally; its
+official score is unknown until uploaded.
+
 | Approach | Local AUC (Jan 26) | Official AUC | Report |
 |---|---:|---:|---|
 | Starter solution | 0.6141 | – | [`src/starter_solution.py`](src/starter_solution.py) |
