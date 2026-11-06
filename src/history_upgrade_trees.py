@@ -3,6 +3,7 @@ import argparse
 import gc
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 import time
@@ -12,7 +13,8 @@ from scipy.stats import rankdata
 from sklearn.metrics import roc_auc_score
 
 ROOT=Path(__file__).resolve().parents[1]
-OUT=ROOT/'artifacts/history_upgrade'
+DEFAULT_OUT=ROOT/'artifacts/history_upgrade'
+OUT=DEFAULT_OUT
 CACHE=ROOT/'analysis/.cache'
 
 
@@ -75,6 +77,20 @@ def predict(model,kind,X,threads):
     if kind=='CatBoost':
         return model.predict(X,prediction_type='RawFormulaVal',thread_count=threads)
     return model.predict(X,raw_score=True,num_threads=threads)
+
+
+def refit_tree_count(kind,size,X,y,names,stage,args,data,meta,through):
+    """Reference experiment 13: early stop on the last fitting day, trained on the earlier days,
+    then scale by days for a refit on all of them. Uses no labels from the scored window."""
+    times=np.asarray(data['time'][meta['first_event']:meta['last_event']])
+    split=int(np.searchsorted(times,1737331200+through*86400))*10
+    if not 0<split<len(y):
+        raise ValueError('The last fitting day is missing from the tree training rows')
+    _,inner=fit(kind,size,X[:split],y[:split],names,stage+'_inner',args,valid=(X[split:],y[split:]))
+    days=through-1  # tree rows start on day 2, so days 2..through
+    count=max(1,round(inner['trees']*days/(days-1)))
+    log(f"{stage} {kind}: {inner['trees']} trees by early stopping on day {through} -> {count} for days 2-{through}")
+    return count
 
 
 def fit(kind,size,X,y,names,stage,args,valid=None,trees=None):
@@ -163,9 +179,21 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('phase',choices=['development','confirmation','final'])
     parser.add_argument('--threads',type=int,default=12)
+    parser.add_argument('--output-dir',type=Path,default=DEFAULT_OUT)
+    parser.add_argument('--candidates',default='CatBoost:6,CatBoost:8,LightGBM:31,LightGBM:63')
+    parser.add_argument('--tree-refit-policy',action='store_true',
+                        help='Pick the tree count by early stopping on the last fitting day, scale it, refit on all days')
     args=parser.parse_args()
     if 'torch' in sys.modules:
         raise RuntimeError('Tree worker must not import PyTorch')
+    global OUT
+    OUT=args.output_dir.resolve()
+    candidates=[]
+    for item in args.candidates.split(','):
+        kind,size=item.split(':')
+        if kind not in ('CatBoost','LightGBM'):
+            raise ValueError('Unknown tree learner: '+kind)
+        candidates.append((kind,int(size)))
     data=load_data('train')
     phase=args.phase
     start=1737331200
@@ -185,16 +213,25 @@ def main():
                 'development_validation':'First event per user Jan 24-25','confirmation_validation':'First event per user Jan 26',
                 'mf_history_training':'Fitting data only; own supplied history remains an inference input',
                 'identical_numeric_tree_inputs':True,'model_selection':'Development only'}}
-        for kind,sizes in [('CatBoost',[6,8]),('LightGBM',[31,63])]:
-            for size in sizes:
+        for kind,size in candidates:
+            if args.tree_refit_policy:
+                count=refit_tree_count(kind,size,X,y,names,'development',args,data,meta,through)
+                model,record=fit(kind,size,X,y,names,'development',args,trees=count)
+                record['development']=metrics(vy,predict(model,kind,Q,args.threads))
+            else:
                 model,record=fit(kind,size,X,y,names,'development',args,valid=(Q,vy))
-                report['development'].append(record)
-                atomic_json(result_path,report)
-                del model
-                gc.collect()
+            # Saved for the shared evaluator: event-major raw scores on the development rows.
+            np.savez(OUT/f'development_{kind}_{size}.npz',event_indices=ix,
+                     logits=predict(model,kind,Q,args.threads).reshape(-1,10))
+            report['development'].append(record)
+            atomic_json(result_path,report)
+            del model
+            gc.collect()
         selected=max(report['development'],key=lambda r:r['development']['roc_auc'])
         best_by_kind={kind:max([r for r in report['development'] if r['kind']==kind],key=lambda r:r['development']['roc_auc'])
-                      for kind in ['CatBoost','LightGBM']}
+                      for kind in dict.fromkeys(kind for kind,_ in candidates)}
+        with np.load(OUT/f"development_{selected['kind']}_{selected['size']}.npz") as chosen:
+            np.savez(OUT/'development_predictions.npz',event_indices=chosen['event_indices'],logits=chosen['logits'])
         selection={'selected':selected,'best_by_kind':best_by_kind,
                    'seed_selection':json.loads((OUT/'seed_selection.json').read_text()),
                    'recipe':json.loads((OUT/'recipe.json').read_text())}
@@ -208,44 +245,53 @@ def main():
     selection=json.loads((OUT/'selection_locked.json').read_text())
     selected=selection['selected']
     if phase=='confirmation':
+        # Under launch.sh only the shared evaluator reports this window, and only for eligible runs.
+        hide=os.environ.get('TECHARENA_HIDE_CONFIRMATION')=='1'
         ix=first_events(data,start+6*86400)
         labels=np.asarray(data['label'][ix])
         with np.load(ROOT/'artifacts/strategy2/confirmation_predictions.npz') as old:
             np.testing.assert_array_equal(ix,old['event_indices'])
             np.testing.assert_array_equal(labels,old['labels'])
             baseline=old['logits']
+        saved=dict(event_indices=ix) if hide else dict(event_indices=ix,labels=labels)
         records={}
         for kind,best in selection['best_by_kind'].items():
-            model,record=fit(kind,best['size'],X,y,names,'confirmation',args,trees=best['trees'])
+            count=(refit_tree_count(kind,best['size'],X,y,names,'confirmation',args,data,meta,through)
+                   if args.tree_refit_policy else best['trees'])
+            model,record=fit(kind,best['size'],X,y,names,'confirmation',args,trees=count)
             scores=predict(model,kind,Q,args.threads).reshape(-1,10)
             reloaded=load_model(record)
             actual=predict(reloaded,kind,Q,args.threads).reshape(-1,10)
             np.testing.assert_allclose(scores,actual,rtol=0,atol=1e-12)
-            np.savez(OUT/f'confirmation_{kind}.npz',event_indices=ix,labels=labels,logits=scores)
-            records[kind]=dict(metrics=metrics(labels,scores),checkpoint_reload_verified=True,
-                               model=record['path'],trees=record['trees'])
-            log(kind+' CONFIRMATION: '+json.dumps(records[kind]['metrics']))
+            np.savez(OUT/f'confirmation_{kind}.npz',logits=scores,**saved)
+            records[kind]=dict(checkpoint_reload_verified=True,model=record['path'],trees=record['trees'])
+            if not hide:
+                records[kind]['metrics']=metrics(labels,scores)
+                log(kind+' CONFIRMATION: '+json.dumps(records[kind]['metrics']))
             if kind==selected['kind']:
-                np.savez(OUT/'confirmation_predictions.npz',event_indices=ix,labels=labels,logits=scores)
+                np.savez(OUT/'confirmation_predictions.npz',logits=scores,**saved)
                 chosen=scores
             del model,reloaded
             gc.collect()
-        fit_counts=np.bincount(data['user'][:meta['last_event']],minlength=int(data['user'].max())+1)
-        new=fit_counts[data['user'][ix]]==0
-        h=data['hist_len'][ix]
-        slices={}
-        for name,mask in [('known_user',~new),('new_user',new),('empty_history',h==0),
-                          ('short_history_1_9',(h>0)&(h<10)),('history_10_plus',h>=10)]:
-            if mask.any():
-                slices[name]=dict(metrics(labels[mask],chosen[mask]),events=int(mask.sum()))
-        report['confirmation']={'by_learner':records,'selected_kind':selected['kind'],
-                                'selected':metrics(labels,chosen),'slices':slices,
-                                'statistics':confidence_and_comparison(labels,chosen,baseline)}
+        report['confirmation']={'by_learner':records,'selected_kind':selected['kind']}
+        if not hide:
+            fit_counts=np.bincount(data['user'][:meta['last_event']],minlength=int(data['user'].max())+1)
+            new=fit_counts[data['user'][ix]]==0
+            h=data['hist_len'][ix]
+            slices={}
+            for name,mask in [('known_user',~new),('new_user',new),('empty_history',h==0),
+                              ('short_history_1_9',(h>0)&(h<10)),('history_10_plus',h>=10)]:
+                if mask.any():
+                    slices[name]=dict(metrics(labels[mask],chosen[mask]),events=int(mask.sum()))
+            report['confirmation'].update(selected=metrics(labels,chosen),slices=slices,
+                                          statistics=confidence_and_comparison(labels,chosen,baseline))
         atomic_json(result_path,report)
         return
     report['final_models']={}
     for kind,best in selection['best_by_kind'].items():
-        model,record=fit(kind,best['size'],X,y,names,'final',args,trees=best['trees'])
+        count=(refit_tree_count(kind,best['size'],X,y,names,'final',args,data,meta,through)
+               if args.tree_refit_policy else best['trees'])
+        model,record=fit(kind,best['size'],X,y,names,'final',args,trees=count)
         scores=predict(model,kind,Q,args.threads).reshape(-1,10)
         reloaded=load_model(record)
         np.testing.assert_allclose(scores,predict(reloaded,kind,Q,args.threads).reshape(-1,10),rtol=0,atol=1e-12)

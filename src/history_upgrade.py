@@ -25,24 +25,58 @@ import strategy1 as common
 from strategy2 import atomic_json, atomic_npy, rank_within_event
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / 'artifacts' / 'history_upgrade'
+DEFAULT_OUT = ROOT / 'artifacts' / 'history_upgrade'
+OUT = DEFAULT_OUT
 VERSION = 1
 START = common.utc_stamp('2025-01-20')
 DAY = 86400
 FIRST_DAY = 2
 PART_NAMES = ['mf_logit', 'mf_item_bias', 'mf_user_bias', 'mf_history_dot']
+TREE_CANDIDATES = 'CatBoost:6,CatBoost:8,LightGBM:31,LightGBM:63'
+# Baseline MF settings. Defaults keep recipe identities, and so saved checkpoints, unchanged.
+MF_DEFAULTS = dict(dim=32, l2=.05, lr=.003, aux_weight=.1, negatives=9, history_limit=100, init_std=.05)
+
+
+def setting(args, name):
+    return getattr(args, name, MF_DEFAULTS[name])
 
 
 def recipe(args):
-    return dict(version=VERSION, dim=32, l2=.05, lr=.003, auxiliary_weight=.1,
-                negatives=9, history_limit=100, init_std=.05, seeds=args.seeds,
-                steps=args.steps, batch_events=args.batch_events,
-                event_sampling='independent uniform with replacement per seed',
-                historical_inputs='fitting histories and labels only; own query history at inference')
+    historical_inputs = 'fitting histories and labels only; own query history at inference'
+    if getattr(args, 'query_clicks', False):
+        historical_inputs += "; auxiliary loss also uses pre-cutoff clicks from scored queries' histories"
+    result = dict(version=VERSION, dim=setting(args, 'dim'), l2=setting(args, 'l2'), lr=setting(args, 'lr'),
+                  auxiliary_weight=setting(args, 'aux_weight'), negatives=setting(args, 'negatives'),
+                  history_limit=setting(args, 'history_limit'), init_std=setting(args, 'init_std'),
+                  seeds=args.seeds, steps=args.steps, batch_events=args.batch_events,
+                  event_sampling='independent uniform with replacement per seed',
+                  historical_inputs=historical_inputs)
+    if getattr(args, 'steps_per_seed', None):
+        result['steps_per_seed'] = list(args.steps_per_seed)
+    for name in ('stale_context_hours', 'stale_history_hours'):
+        if getattr(args, name, 0):
+            result[name] = getattr(args, name)
+    return result
+
+
+def mf_identity(args):
+    """Everything the MF models and their score components depend on."""
+    return {'data_fingerprint': common.cache_fingerprint(), 'recipe': recipe(args)}
 
 
 def run_identity(args):
-    return {'data_fingerprint': common.cache_fingerprint(), 'recipe': recipe(args)}
+    """MF identity plus settings that only change the tree features."""
+    identity = mf_identity(args)
+    subset = getattr(args, 'feature_subset', 'baseline')
+    return dict(identity, feature_subset=subset) if subset != 'baseline' else identity
+
+
+def write_recipe(args):
+    """Refuse a directory holding another recipe before anything in it is modified."""
+    path, identity = OUT/'recipe.json', run_identity(args)
+    if path.exists() and json.loads(path.read_text()) != identity:
+        raise ValueError(f'{OUT} holds a different recipe; use a new --output-dir')
+    atomic_json(path, identity)
 
 
 def unique_clicks(data, fit):
@@ -62,12 +96,41 @@ def unique_clicks(data, fit):
     return np.unique(records)
 
 
-def long_history(data, indices, clicks, n_items, limit=100):
-    """Merge fitting clicks and the event's own history, strictly before its time."""
+def scored_query_clicks(data, day):
+    """Pre-cutoff clicks in the supplied histories of the queries this cutoff's model scores:
+    the evaluation file on day 7, the development or confirmation window on days 4 and 6, and
+    each user's first event of the day otherwise. Histories hold only clicks before their own
+    event and are filtered to the cutoff here; no outcome of a scored row is read."""
+    cutoff = START + day * DAY
+    if day == 7:
+        query = common.load_data('evaluation')
+        ix = np.arange(len(query['time']))
+    else:
+        query = data
+        if day == 4:
+            _, ix = common.chronological_split(data, '2025-01-24', '2025-01-26')
+        elif day == 6:
+            _, ix = common.chronological_split(data, '2025-01-26')
+        else:
+            on_day = np.flatnonzero((data['time'] >= cutoff) & (data['time'] < cutoff + DAY))
+            _, first = np.unique(np.asarray(data['user'][on_day]), return_index=True)
+            ix = np.sort(on_day[first])
+    h, ht, u = (np.asarray(query[k][ix]) for k in ['hist', 'hist_time', 'user'])
+    valid = (h >= 0) & (ht < cutoff)
+    records = np.empty(int(valid.sum()), dtype=[('user', 'i4'), ('time', 'i8'), ('item', 'i4')])
+    records['user'] = np.broadcast_to(u[:, None], h.shape)[valid]
+    records['time'] = ht[valid]
+    records['item'] = h[valid] + 1
+    return np.unique(records)
+
+
+def long_history(data, indices, clicks, n_items, limit=100, gap=0):
+    """Merge fitting clicks and the event's own history, strictly before its time minus gap
+    seconds. A training gap mimics the older histories of the scored population."""
     uid, ts = np.asarray(data['user'][indices]), np.asarray(data['time'][indices])
     key = clicks['user'].astype(np.int64) * 10_000_000_000 + clicks['time']
     starts = np.searchsorted(key, uid.astype(np.int64) * 10_000_000_000, side='left')
-    ends = np.searchsorted(key, uid.astype(np.int64) * 10_000_000_000 + ts, side='left')
+    ends = np.searchsorted(key, uid.astype(np.int64) * 10_000_000_000 + ts - gap, side='left')
     ix = ends[:, None] - 1 - np.arange(limit)[None, :]
     valid = ix >= starts[:, None]
     if len(clicks):
@@ -80,7 +143,8 @@ def long_history(data, indices, clicks, n_items, limit=100):
     h, ht = np.asarray(data['hist'][indices]), np.asarray(data['hist_time'][indices])
     if np.any((h >= 0) & (ht >= ts[:, None])):
         raise ValueError('An event history contains a current/future click')
-    own_items, own_times = np.maximum(h + 1, 0), np.where(h >= 0, ht, 0)
+    own = (h >= 0) & (ht < ts[:, None] - gap)
+    own_items, own_times = np.where(own, h + 1, 0), np.where(own, ht, 0)
     codes = np.concatenate([times * n_items + items, own_times * n_items + own_items], axis=1)
     codes.sort(axis=1)
     duplicates = np.concatenate([np.zeros((len(indices), 1), bool), codes[:, 1:] == codes[:, :-1]], axis=1)
@@ -90,8 +154,9 @@ def long_history(data, indices, clicks, n_items, limit=100):
     return (codes % n_items).astype(np.int32), (codes > 0).sum(axis=1).astype(np.int16)
 
 
-def other_click_context(clicks, limit=100):
-    """Other clicks of the same user; omit the exact target occurrence."""
+def other_click_context(clicks, limit=100, gap=0):
+    """Other clicks of the same user; omit the exact target occurrence, and with a gap also
+    every click within gap seconds of it, as if the user's history stopped before the target."""
     users = clicks['user']
     if not len(users):
         return np.zeros((0, limit), np.int32), np.zeros(0, np.int16), np.zeros(0, np.int32)
@@ -99,13 +164,17 @@ def other_click_context(clicks, limit=100):
     counts = np.diff(boundaries)
     starts = np.repeat(boundaries[:-1], counts)
     ends = np.repeat(boundaries[1:], counts)
-    positions = np.arange(len(users))
-    lengths = np.minimum(ends - starts - 1, limit)
+    # Clicks are sorted by user and time, so the omitted clicks are one block [low, high).
+    low, high = np.arange(len(users)), np.arange(len(users)) + 1
+    if gap:
+        key = users.astype(np.int64) * 10_000_000_000 + clicks['time']
+        low, high = np.searchsorted(key, key - gap + 1, side='left'), np.searchsorted(key, key + gap, side='left')
+    lengths = np.minimum(ends - starts - (high - low), limit)
     result = np.zeros((len(users), limit), np.int32)
     # Column blocks avoid an additional N x 100 int64 temporary allocation.
     for j in range(limit):
         idx = ends - 1 - j
-        idx -= idx <= positions
+        idx -= (idx < high) * (high - low)
         valid = idx >= starts
         result[valid, j] = clicks['item'][idx[valid]]
     has = lengths > 0
@@ -129,6 +198,21 @@ class SharedHistoryEnsemble(nn.Module):
                 torch.manual_seed(seed)
                 self.item.weight[seed*n_items:(seed+1)*n_items].normal_(0, init_std)
                 self.item.weight[seed*n_items].zero_()
+
+    def seed_state(self, seed):
+        n, u = self.n_items, self.n_users
+        return (self.item.weight[seed*n:(seed+1)*n].detach().clone(),
+                self.item_bias.weight[seed*n:(seed+1)*n].detach().clone(),
+                self.user_bias.weight[seed*u:(seed+1)*u].detach().clone(),
+                self.intercept[seed].detach().clone())
+
+    @torch.no_grad()
+    def load_seed_state(self, seed, state):
+        n, u = self.n_items, self.n_users
+        self.item.weight[seed*n:(seed+1)*n] = state[0]
+        self.item_bias.weight[seed*n:(seed+1)*n] = state[1]
+        self.user_bias.weight[seed*u:(seed+1)*u] = state[2]
+        self.intercept[seed] = state[3]
 
     def lookup(self, table, indices, stride):
         offsets = self.seed_index.reshape((-1,) + (1,) * (indices.ndim-1)) * stride
@@ -187,12 +271,13 @@ def atomic_checkpoint(path, value):
 def fit_ensemble(data, day, sizes, args):
     cutoff = START + day * DAY
     fit = np.flatnonzero(data['time'] < cutoff)
-    identity = dict(run_identity(args), cutoff=cutoff, fitting_events=len(fit))
+    identity = dict(mf_identity(args), cutoff=cutoff, fitting_events=len(fit))
     path = OUT / 'models' / f'day{day}.pt'
     checkpoint = torch.load(path, map_location='cpu', weights_only=True) if path.exists() else None
     if checkpoint is not None and checkpoint['identity'] != identity:
         raise ValueError('Checkpoint recipe/data changed; use a separate output directory')
-    model = SharedHistoryEnsemble(sizes['all_users'], sizes['all_items']+1, args.seeds).to(args.device)
+    model = SharedHistoryEnsemble(sizes['all_users'], sizes['all_items']+1, args.seeds,
+                                  dim=setting(args, 'dim'), init_std=setting(args, 'init_std')).to(args.device)
     if checkpoint is not None:
         model.load_state_dict(checkpoint['model'])
         common.log(f'Reusing completed day-{day} ensemble')
@@ -201,15 +286,28 @@ def fit_ensemble(data, day, sizes, args):
     if len(clicks) and clicks['time'].max() >= cutoff:
         raise ValueError('Fitting click log crosses the model cutoff')
     n_items = sizes['all_items']+1
-    hist, lengths = long_history(data, fit, clicks, n_items)
-    ctx, ctx_len, targets = other_click_context(clicks)
+    limit, l2, negatives = setting(args, 'history_limit'), setting(args, 'l2'), setting(args, 'negatives')
+    per_seed = getattr(args, 'steps_per_seed', None)
+    steps = max(per_seed) if per_seed else args.steps
+    hist, lengths = long_history(data, fit, clicks, n_items, limit,
+                                 gap=int(getattr(args, 'stale_history_hours', 0)*3600))
+    auxiliary_clicks, added_clicks = clicks, 0
+    if getattr(args, 'query_clicks', False):
+        # Auxiliary only: impressions and reconstructed fitting histories stay unchanged.
+        auxiliary_clicks = np.union1d(clicks, scored_query_clicks(data, day))
+        added_clicks = len(auxiliary_clicks) - len(clicks)
+        if auxiliary_clicks['time'].max() >= cutoff:
+            raise ValueError('Query-history clicks cross the model cutoff')
+        common.log(f'Day {day}: query histories add {added_clicks:,} auxiliary clicks to {len(clicks):,}')
+    ctx, ctx_len, targets = other_click_context(auxiliary_clicks, limit,
+                                                gap=int(getattr(args, 'stale_context_hours', 0)*3600))
     provenance = dict(identity, max_fitting_event_time=int(data['time'][fit].max()),
                       unique_clicks=len(clicks), warmup_clicks=int((clicks['time'] < START).sum()),
                       max_click_time=int(clicks['time'].max()), auxiliary_examples=len(targets),
-                      mean_history_length=float(lengths.mean()),
+                      mean_history_length=float(lengths.mean()), added_auxiliary_clicks=added_clicks,
                       click_log_sha256=hashlib.sha256(clicks.tobytes()).hexdigest())
-    common.log(f'Day {day}: {len(fit):,} fitting events, {len(clicks):,} unique clicks, '
-               f'{args.seeds} seeds, {args.steps} steps; mean history {lengths.mean():.1f}')
+    common.log(f"Day {day}: {len(fit):,} fitting events, {len(clicks):,} unique clicks, "
+               f"{args.seeds} seeds, {per_seed or steps} steps; mean history {lengths.mean():.1f}")
     def tensor(value, dtype=torch.long):
         return torch.as_tensor(np.array(value, copy=True), dtype=dtype, device=args.device)
     t = {'user': tensor(data['user'][fit]), 'items': tensor(data['items'][fit]+1),
@@ -220,9 +318,9 @@ def fit_ensemble(data, day, sizes, args):
     cdf = np.cumsum(counts / counts.sum()).astype(np.float32)
     cdf[-1] = 1
     t['cdf'] = tensor(cdf, torch.float32)
-    del hist, ctx, clicks
+    del hist, ctx, clicks, auxiliary_clicks
     gc.collect()
-    optimizer = torch.optim.Adam(model.parameters(), lr=.003)
+    optimizer = torch.optim.Adam(model.parameters(), lr=setting(args, 'lr'))
     torch.manual_seed(42)
     resume_path = path.with_name(path.stem + '.resume.pt')
     start_step = 0
@@ -238,27 +336,34 @@ def fit_ensemble(data, day, sizes, args):
             torch.mps.set_rng_state(resume['device_rng'])
         common.log(f'Resuming day {day} at step {start_step}')
         del resume
+    # A finished seed is held at its stopping point; Adam momentum would otherwise keep moving it.
+    frozen = {seed: model.seed_state(seed) for seed, last in enumerate(per_seed or []) if last <= start_step}
     begin = time.time()
     model.train()
-    for step in range(start_step, args.steps):
+    for step in range(start_step, steps):
         ix = torch.randint(len(fit), (args.seeds, args.batch_events), device=args.device)
         components, reg = model(t['user'][ix], t['items'][ix], t['hist'][ix], t['lengths'][ix], regularize=True)
         primary = F.binary_cross_entropy_with_logits(components[..., 0], t['label'][ix], reduction='none').mean((1, 2))
         ai = torch.randint(len(targets), (args.seeds, args.batch_events), device=args.device)
-        neg = torch.searchsorted(t['cdf'], torch.rand((args.seeds, args.batch_events, 9), device=args.device), right=True)
+        neg = torch.searchsorted(t['cdf'], torch.rand((args.seeds, args.batch_events, negatives), device=args.device), right=True)
         neg = neg.clamp(max=n_items-1)
         auxiliary, a_reg = model.auxiliary(t['context'][ai], t['context_lengths'][ai], t['targets'][ai], neg)
-        losses = primary + .05*reg + .1*(auxiliary + .05*a_reg)
+        losses = primary + l2*reg + setting(args, 'aux_weight')*(auxiliary + l2*a_reg)
         optimizer.zero_grad(set_to_none=True)
         losses.sum().backward()
         optimizer.step()
-        if (step+1) % args.checkpoint_every == 0 or step+1 == args.steps:
+        for seed, last in enumerate(per_seed or []):
+            if step+1 == last:
+                frozen[seed] = model.seed_state(seed)
+            elif step+1 > last:
+                model.load_seed_state(seed, frozen[seed])
+        if (step+1) % args.checkpoint_every == 0 or step+1 == steps:
             values = losses.detach().cpu().numpy()
             if not np.isfinite(values).all():
                 raise RuntimeError('Non-finite training objective')
             elapsed = time.time()-begin
-            common.log(f'Day {day}, step {step+1}/{args.steps}: objective {values.mean():.5f}, {elapsed:.1f}s since resume')
-            if step+1 < args.steps:
+            common.log(f'Day {day}, step {step+1}/{steps}: objective {values.mean():.5f}, {elapsed:.1f}s since resume')
+            if step+1 < steps:
                 atomic_checkpoint(resume_path, dict(identity=identity, step=step+1,
                     model=cpu_tree(model.state_dict()), optimizer=cpu_tree(optimizer.state_dict()),
                     cpu_rng=torch.get_rng_state(),
@@ -280,7 +385,7 @@ def predict_components(model, query, indices, clicks, args):
     result = np.empty((args.seeds, len(indices), 10, 4), np.float32)
     for start in range(0, len(indices), 1024):
         ix = indices[start:start+1024]
-        hist, lengths = long_history(query, ix, clicks, model.n_items)
+        hist, lengths = long_history(query, ix, clicks, model.n_items, setting(args, 'history_limit'))
         def expand(value, dtype=torch.long):
             t = torch.as_tensor(np.array(value, copy=True), dtype=dtype, device=args.device)
             return t.unsqueeze(0).expand((args.seeds,) + t.shape)
@@ -312,7 +417,7 @@ def ensure_parts(day, data, sizes, args):
     pending = []
     for name, query, ix in queries:
         path = directory / (name+'.npy')
-        expected = dict(run_identity(args), day=day, query_events=len(ix),
+        expected = dict(mf_identity(args), day=day, query_events=len(ix),
                         query_indices_sha256=hashlib.sha256(ix.astype(np.int64).tobytes()).hexdigest())
         meta_path = path.with_suffix('.json')
         if path.exists() and meta_path.exists():
@@ -338,18 +443,23 @@ def ensure_parts(day, data, sizes, args):
         torch.mps.empty_cache()
 
 
-def base_columns():
+DROPPED_BASE = {'baseline': (), 'no-extended': (), 'no-spectral': ('spectral_',),
+                'reference': ('spectral_', 'cf_', 'item_interacting_users', 'starter_logit')}
+
+
+def base_columns(feature_subset='baseline'):
+    """Base feature columns of a subset; every subset excludes the old learned-MF features."""
     meta = json.loads((ROOT/'artifacts/strategy2/features/train.json').read_text())
-    # Remove every feature derived from the previous learned preference model.
     names = meta['feature_names']
     keep = [i for i,n in enumerate(names) if not n.startswith(('neural_', 'learned_'))
-            and n not in ['candidate_vector_norm', 'history_vector_norm']]
+            and n not in ['candidate_vector_norm', 'history_vector_norm']
+            and not n.startswith(DROPPED_BASE[feature_subset])]
     if meta['identity']['data_fingerprint'] != common.cache_fingerprint():
         raise ValueError('Base features and encoded data do not match')
     return keep, [names[i] for i in keep]
 
 
-def upgraded_features(base, parts, hist, lengths, candidates, keep, base_names, seeds):
+def upgraded_features(base, parts, hist, lengths, candidates, keep, base_names, seeds, extended=True):
     mean = parts[:seeds].mean(axis=0, dtype=np.float64).astype(np.float32)
     score = mean[..., 0]
     extra = OrderedDict((name, mean[..., i]) for i,name in enumerate(PART_NAMES))
@@ -371,6 +481,9 @@ def upgraded_features(base, parts, hist, lengths, candidates, keep, base_names, 
     extra['long_history_distinct_items'] = event(unique)
     repeat = np.stack([(hist == candidates[:,j,None]+1).sum(axis=1) for j in range(10)],axis=1)
     extra['long_history_candidate_repeat_count'] = repeat
+    if not extended:
+        for name in ['long_history_length', 'long_history_distinct_items', 'long_history_candidate_repeat_count']:
+            del extra[name]
     result = np.concatenate([base[...,keep], np.stack(list(extra.values()),axis=2)],axis=2).astype(np.float32)
     if not np.isfinite(result).all():
         raise RuntimeError('Non-finite tree features')
@@ -394,7 +507,8 @@ def ensure_features(name, data, sizes, seeds, args):
         data = common.load_data('evaluation')
         ix = np.arange(len(data['time']))
         base = np.load(ROOT/'artifacts/strategy2/features/evaluation.npy',mmap_mode='r')
-    keep, base_names = base_columns()
+    feature_subset = getattr(args, 'feature_subset', 'baseline')
+    keep, base_names = base_columns(feature_subset)
     identity = dict(run_identity(args), seeds_averaged=seeds, name=name, events=len(ix))
     path = OUT/'features'/(name+'.npy')
     meta_path = path.with_suffix('.json')
@@ -408,13 +522,15 @@ def ensure_features(name, data, sizes, seeds, args):
     output = None
     for start in range(0,len(ix),2048):
         selected = ix[start:start+2048]
-        hist,lengths = long_history(data,selected,clicks,sizes['all_items']+1)
+        hist,lengths = long_history(data,selected,clicks,sizes['all_items']+1,setting(args,'history_limit'))
         values,names = upgraded_features(base[start:start+len(selected)],parts[:,start:start+len(selected)],
-                             hist,lengths,data['items'][selected],keep,base_names,seeds)
+                             hist,lengths,data['items'][selected],keep,base_names,seeds,
+                             extended=feature_subset not in ('no-extended','reference'))
         if output is None:
             output = np.lib.format.open_memmap(temporary,mode='w+',dtype=np.float32,shape=(len(ix),10,len(names)))
         output[start:start+len(selected)] = values
-    output.flush()
+    if output is not None:
+        output.flush()
     del output
     temporary.replace(path)
     atomic_json(meta_path,dict(identity=identity,feature_names=names,shape=[len(ix),10,len(names)]))
@@ -449,13 +565,17 @@ def run_trees(phase,args):
     env = dict(os.environ)
     # Use the bundled runtime without importing PyTorch in the LightGBM process.
     runtime = Path(torch.__file__).resolve().parent/'lib'
-    env['DYLD_LIBRARY_PATH'] = str(runtime)+(os.pathsep+env['DYLD_LIBRARY_PATH'] if env.get('DYLD_LIBRARY_PATH') else '')
-    subprocess.run([sys.executable,str(Path(__file__).resolve().parent/'history_upgrade_trees.py'),phase,'--threads',str(args.threads)],env=env,check=True)
+    env['DYLD_LIBRARY_PATH'] = str(runtime)+(os.pathsep+env.get('DYLD_LIBRARY_PATH') if env.get('DYLD_LIBRARY_PATH') else '')
+    cmd=[sys.executable,str(Path(__file__).resolve().parent/'history_upgrade_trees.py'),phase,
+         '--threads',str(args.threads),'--output-dir',str(OUT),'--candidates',args.tree_candidates]
+    if args.tree_refit_policy:
+        cmd.append('--tree-refit-policy')
+    subprocess.run(cmd,env=env,check=True)
 
 
 def run(args):
     OUT.mkdir(parents=True,exist_ok=True)
-    atomic_json(OUT/'recipe.json',run_identity(args))
+    write_recipe(args)
     data = common.load_data('train')
     sizes = json.loads((common.CACHE/'id_counts.json').read_text())
     for day in [2,3,4]:
@@ -474,6 +594,9 @@ def run(args):
         ensure_features(name,data,sizes,seeds,args)
     combine_features(data,3,seeds,args)
     run_trees('development',args)
+    if args.until=='development':
+        common.log('Stopping after development as requested')
+        return
     # Model settings, seed count, and tree learner are now locked before confirmation.
     for day in [5,6]:
         ensure_parts(day,data,sizes,args)
@@ -481,6 +604,9 @@ def run(args):
         ensure_features(name,data,sizes,seeds,args)
     combine_features(data,5,seeds,args)
     run_trees('confirmation',args)
+    if args.until=='confirmation':
+        common.log('Stopping after confirmation as requested')
+        return
     ensure_parts(7,data,sizes,args)
     for name in ['day6','evaluation']:
         ensure_features(name,data,sizes,seeds,args)
@@ -489,20 +615,20 @@ def run(args):
     # Shared writer validates every output ID against the raw evaluation dataset.
     logits=np.load(OUT/'evaluation_logits.npy')
     report=json.loads((OUT/'results.json').read_text())
-    report['submission']=common.write_submission(logits,filename='artifacts/history_upgrade/submission_history_upgrade.csv')
+    report['submission']=common.write_submission(logits,filename=str(OUT/'submission_history_upgrade.csv'))
     report['comparison_submissions']={}
     for kind in report['final_models']:
         if kind!=report['confirmation']['selected_kind']:
             scores=np.load(OUT/f'evaluation_{kind}_logits.npy')
             report['comparison_submissions'][kind]=common.write_submission(scores,
-                filename=f'artifacts/history_upgrade/submission_{kind}.csv')
+                filename=str(OUT/f'submission_{kind}.csv'))
     report['recipe']=recipe(args)
     report['seed_selection']=json.loads((OUT/'seed_selection.json').read_text())
     atomic_json(OUT/'results.json',report)
-    common.log('HISTORY UPGRADE COMPLETE: '+json.dumps({'confirmation':report['confirmation']['selected'],'submission':report['submission']}))
+    common.log('HISTORY UPGRADE COMPLETE: '+json.dumps({'submission':report['submission']}))
 
 
-def main():
+def build_parser():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--device',choices=['auto','cpu','mps'],default='auto')
     parser.add_argument('--seeds',type=int,default=10)
@@ -510,7 +636,37 @@ def main():
     parser.add_argument('--batch-events',type=int,default=820)
     parser.add_argument('--checkpoint-every',type=int,default=500)
     parser.add_argument('--threads',type=int,default=12)
+    parser.add_argument('--output-dir',type=Path,default=DEFAULT_OUT,
+                        help='Run directory; use a new one for every changed recipe or experiment')
+    parser.add_argument('--until',choices=['development','confirmation','final'],default='final',
+                        help='Last stage to run; development is the cheap search stage')
+    parser.add_argument('--tree-candidates',default=TREE_CANDIDATES,
+                        help='Comma-separated Kind:size tree learners compared on development')
+    parser.add_argument('--steps-per-seed',type=lambda v:[int(x) for x in v.split(',')],default=None,
+                        help='Comma-separated MF updates for each seed, instead of --steps for all')
+    parser.add_argument('--query-clicks',action='store_true',
+                        help="Add pre-cutoff clicks from the scored queries' histories to the auxiliary loss")
+    parser.add_argument('--feature-subset',choices=['baseline', 'reference', 'no-spectral', 'no-extended'],
+                        default='baseline',
+                        help='Feature subset: baseline (70 features), reference (~39), no-spectral, no-extended')
+    parser.add_argument('--tree-refit-policy',action='store_true',
+                        help='Pick the tree count by early stopping on the last fitting day, scale it, refit on all days')
+    parser.add_argument('--stale-context-hours',type=float,default=0.,
+                        help="Auxiliary context omits the user's clicks within this many hours of the target")
+    parser.add_argument('--stale-history-hours',type=float,default=0.,
+                        help='MF training histories stop this many hours before each event; scoring is unchanged')
+    for name,value in MF_DEFAULTS.items():
+        parser.add_argument('--'+name.replace('_','-'),type=type(value),default=value)
+    return parser
+
+
+def main():
+    parser=build_parser()
     args=parser.parse_args()
+    if args.steps_per_seed and len(args.steps_per_seed)!=args.seeds:
+        parser.error('--steps-per-seed needs one value per seed')
+    global OUT
+    OUT=args.output_dir.resolve()
     if args.device=='auto':
         args.device='mps' if torch.backends.mps.is_available() else 'cpu'
     torch.set_num_threads(6)

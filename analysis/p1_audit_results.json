@@ -1,0 +1,29 @@
+{
+  "evaluation_users": 54456,
+  "evaluation_items": 50000,
+  "clicks_by_cutoff": {
+    "2025-01-24": {
+      "new_unique_clicks": 3489,
+      "new_unique_users": 1159,
+      "new_unique_items": 3041
+    },
+    "2025-01-25": {
+      "new_unique_clicks": 3489,
+      "new_unique_users": 1159,
+      "new_unique_items": 3041
+    },
+    "2025-01-26": {
+      "new_unique_clicks": 3489,
+      "new_unique_users": 1159,
+      "new_unique_items": 3041
+    }
+  },
+  "rare_item_analysis": {
+    "total_items": 50000,
+    "rare_items": 0,
+    "rare_item_fraction": 0.0,
+    "rare_in_eval_hist": 0
+  },
+  "hypothesis": "Adding pre-cutoff clicks from evaluation query histories to MF fitting improves representation for cold users, short histories, and rare items",
+  "information_access_policy": "Only using clicks that appear in supplied query histories, filtered to before each day-specific fitting cutoff"
+}

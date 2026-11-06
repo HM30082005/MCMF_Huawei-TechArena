@@ -1,114 +1,138 @@
-# MCMF – Huawei TechArena 2026
+# MCMF · Click Prediction for Huawei TechArena 2026
 
-Click prediction for the TechArena 2026 Phase 1 challenge: score each of the
-ten candidate items shown in an event with a click probability, using opaque
-user/item IDs, recent click histories, and event context. Submissions are
-ranked by global row-level ROC AUC. The full task contract is in
-[INSTRUCTIONS.md](INSTRUCTIONS.md).
+An experimental recommendation pipeline that predicts clicks from anonymous user–item interactions. The project covers parsing millions of impressions, reconstructing historical clicks, learning item representations, training boosted trees, and evaluating experiments on chronological windows.
 
-## Current best
+**Recorded official ROC AUC: 0.816323.** Later research reached **0.824787 on local confirmation**, a **+0.002280** improvement over the same baseline on matched rows. The later result is a local experiment, not an official score.
 
-**Official ROC AUC 0.816323**: ten-seed shared-item history matrix
-factorisation, followed by LightGBM ([`src/history_upgrade.py`](src/history_upgrade.py)).
-The exact submission checksum and score provenance are in
-[`results/official_scores.json`](results/official_scores.json).
+For a quick review: [results and lessons](docs/experiments/research-summary.md) · [model implementation](src/history_upgrade.py) · [evaluation harness](research/evaluate.py) · [tests](tests/)
 
-| Approach | Local AUC (Jan 26) | Official AUC | Report |
-|---|---:|---:|---|
-| Starter solution | 0.6141 | – | [`src/starter_solution.py`](src/starter_solution.py) |
-| Strategy 1: user/history factorisation | 0.7062 | – | [strategy1](docs/experiments/strategy1.md) |
-| FuxiCTR DIN / DeepFM / DCNv2 | 0.6727 / 0.7120 / 0.7204 | – | [ctr-benchmark](docs/experiments/ctr-benchmark.md) |
-| Strategy 2: behavioural CatBoost | 0.7268 | – | [strategy2](docs/experiments/strategy2.md) |
-| History upgrade + CatBoost | 0.8223 | – | [history-upgrade](docs/experiments/history-upgrade.md) |
-| **History upgrade + LightGBM** | **0.8225** | **0.816323** | [history-upgrade](docs/experiments/history-upgrade.md) |
+## The problem
 
-Local AUC is measured on each user's first event on January 26, 2025, with
-models fitted only on earlier days. That window has been reused for
-comparisons, so it is not an untouched test set. Local and official scores
-are not directly comparable.
+Each recommendation event presents **10 candidate items** to one user. At most one is clicked; some events receive no click. Given opaque IDs, timestamps, event context, and up to 20 recent clicks, predict a probability for every candidate. The metric is **global row-level ROC AUC**, so comparisons across events matter as well as ranking candidates within an event.
 
-**Start with [`docs/HANDOFF.md`](docs/HANDOFF.md)**: current state, temporal
-validation protocol, what has already failed, and the prioritised plan.
+- **Training:** 6,868,240 candidate rows across 686,824 events.
+- **Evaluation:** 529,390 rows, one first event per user after the cutoff.
+- **Data:** synthetic interactions; no item descriptions or user demographics.
 
-## Repository layout
+See the [task specification](INSTRUCTIONS.md) for the full contract.
 
-```text
-src/            pipeline scripts (run from the repository root)
-tests/          unit tests
-analysis/       data parsing/profiling scripts and small JSON audits
-docs/           handoff, strategy notes, reference study
-docs/experiments/  one report per experiment: settings, results, reproduction
-requirements/   pinned dependency sets (each includes the one it builds on)
-results/        official_scores.json: append-only competition score record
+## Approach
+
+```mermaid
+flowchart LR
+    A[Impressions and supplied histories] --> B[Chronological snapshots]
+    B --> C[Deduplicated historical clicks]
+    C --> D[Shared item embeddings and history pooling]
+    D --> E[Independent seed ensemble]
+    B --> F[Behavioural and collaborative features]
+    E --> G[LightGBM click scorer]
+    F --> G
+    G --> H[Per-candidate probabilities]
 ```
 
-Not in Git: the raw CSVs, `analysis/.cache/` (encoded arrays), `artifacts/`
-(models, features, predictions, submissions), `external/` (reference clones)
-and `.venv/`.
+The strongest representation uses one shared item embedding table: the user's mean clicked-item vector is compared with each candidate. Scalar user and item biases capture click propensity. An auxiliary sampled classification loss learns from historical clicks, including warm-up clicks absent from the labelled impression rows. Histories are reconstructed up to 100 clicks while excluding current and future clicks from prediction inputs.
 
-## Setup
+Independent models run together as a vectorized seed ensemble. Their **score components**, rather than embedding coordinates, are averaged and combined with behavioural and event-relative features in LightGBM. Training uses PyTorch on Apple MPS or CPU; a separate tree worker avoids the macOS OpenMP conflict between PyTorch and LightGBM.
 
-1. **Data.** Download the three `.csv.gz` assets from the
-   [dataset-v1 release](https://github.com/HM30082005/MCMF_Huawei-TechArena/releases/tag/dataset-v1)
-   into the repository root and decompress them. The release lists SHA-256
-   checksums for both compressed and original files (about 7.7 GB in total).
+The repository retains earlier factorization and CatBoost pipelines, DIN/DeepFM/DCNv2 benchmarks, feature ablations, and unsuccessful experiments.
 
-   ```sh
-   gunzip train.csv.gz evaluation.csv.gz example_submission.csv.gz
-   ```
+## Results
 
-2. **Environment.** Python 3.12. With [uv](https://docs.astral.sh/uv/):
+| Approach | Local Jan 26 ROC AUC | Official ROC AUC | Evidence |
+|---|---:|---:|---|
+| Starter solution | 0.6141 | — | [Source](src/starter_solution.py) |
+| User/history factorization | 0.7062 | — | [Report](docs/experiments/strategy1.md) |
+| DIN / DeepFM / DCNv2 | 0.6727 / 0.7120 / 0.7204 | — | [Benchmark](docs/experiments/ctr-benchmark.md) |
+| Behavioural CatBoost | 0.7268 | — | [Report](docs/experiments/strategy2.md) |
+| Shared-item history ensemble + LightGBM | 0.822508 | **0.816323** | [Score record](results/official_scores.json) |
+| Research: 30 seeds, shorter fitting, smaller initialization | 0.824512 | — | [Evaluator snapshot](docs/experiments/research-leaderboard.md) |
+| Research: fitting-period tree selection and refit | 0.824669 | — | [Evaluator snapshot](docs/experiments/research-leaderboard.md) |
+| Research: equal-weight logit blend | **0.824787** | — | [Research summary](docs/experiments/research-summary.md) |
 
-   ```sh
-   uv venv --python 3.12 .venv
-   uv pip install --python .venv/bin/python -r requirements/history-upgrade.txt
-   ```
+The official result was reported by the team and linked to a locally verified submission SHA-256; it was not independently checked against a competition receipt. No later official score is recorded. Local and official AUC use different populations and must not be treated as interchangeable.
 
-3. **Encoded cache.** Parses the CSVs into memory-mapped arrays under
-   `analysis/.cache/`:
+### Evaluation discipline
 
-   ```sh
-   .venv/bin/python analysis/profile_data.py
-   ```
+- Models and label-based statistics are fitted before each scoring cutoff. All ten candidates in an event stay together.
+- **Development:** each user's first event during Jan 24–25, 2025; used for model search. **Confirmation:** each user's first event on Jan 26.
+- The evaluator checks exact row alignment and finite predictions, reports slices, and uses event-level paired bootstrap intervals for baseline deltas.
+- Development runs can early-stop on development labels, so those scores are optimistic. The optional tree-refit policy selects iterations within the fitting period instead.
+- Confirmation has been reused, including in earlier development. It is a sanity check, not an untouched test set. Bootstrap intervals exclude model selection and temporal uncertainty.
 
-## Tests
+The [research report](docs/experiments/research-summary.md) explains diminishing returns from more seeds, corrected ablation bugs, and weak performance for sparse or stale histories.
+
+## Run locally
+
+**Python 3.12** and the pinned files under `requirements/` are the recorded environment. The core pipeline supports CPU and Apple MPS; CUDA is not exposed by this pipeline's device selector.
 
 ```sh
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python -r requirements/history-upgrade.txt
+
+# Synthetic unit tests: no competition data or trained models required.
 .venv/bin/python -m unittest discover -s tests -t . -v
 ```
 
-One test reads `analysis/.cache/`, so run step 3 first.
+The tests cover temporal boundaries, target masking, unknown users, empty histories, seed independence, checkpoint resume, feature-cache identities, tree refitting, prediction alignment, and evaluator promotion rules.
 
-## Reproducing the best pipeline
+### Data and preprocessing
+
+Obtain the competition data from the organizers and place `train.csv` and `evaluation.csv` in the repository root. The supplied `example_submission.csv` is useful for checking the output format. Training is about 7.3 GB; the full local experiment collection needs substantially more disk space than this source repository.
 
 ```sh
-# Builds the strategy-2 behavioural feature caches the upgrade depends on.
+# Parse CSV/JSON histories into memory-mapped arrays.
+.venv/bin/python analysis/profile_data.py
+
+# Build behavioural features required by the history pipeline.
 OPENBLAS_NUM_THREADS=2 .venv/bin/python src/strategy2.py prepare --device auto
-OPENBLAS_NUM_THREADS=2 .venv/bin/python src/history_upgrade.py --device auto
 ```
 
-This writes to `artifacts/history_upgrade/`, **overwriting** any earlier run
-there. Back that directory up first. Full training took about 25 minutes on
-an Apple M5 Pro (MPS for the factorisation, CPU for the trees). On macOS, the
-tree worker uses the OpenMP runtime bundled with PyTorch; `history_upgrade.py`
-sets this up for its child process. See
-[docs/experiments/history-upgrade.md](docs/experiments/history-upgrade.md)
-for details and verification.
+### Reproduce a single pipeline
 
-The dependency-free starter baseline:
+Use a fresh output directory for every changed recipe. These commands train models; the unit tests above do not.
 
 ```sh
-python3 src/starter_solution.py --train train.csv --evaluation evaluation.csv --out submission.csv
+# Original ten-seed recipe, restricted to the recorded LightGBM learner.
+OPENBLAS_NUM_THREADS=2 .venv/bin/python src/history_upgrade.py \
+  --device auto --output-dir runs/baseline-reproduction \
+  --seeds 10 --steps 5000 --init-std 0.05 \
+  --tree-candidates LightGBM:31 --until final
+
+# Later 30-seed recipe with fitting-period tree selection.
+OPENBLAS_NUM_THREADS=2 .venv/bin/python src/history_upgrade.py \
+  --device auto --output-dir runs/research-refit-reproduction \
+  --seeds 30 --steps 3000 --init-std 0.005 \
+  --tree-refit-policy --tree-candidates LightGBM:31 --until final
 ```
 
-## Conventions
+The original full pipeline took approximately 25 minutes on an Apple M5 Pro in the recorded run; larger ensembles take longer. Hardware and dependency differences can change results. The final stage writes logits, submission CSVs, models, and reports under the chosen run directory.
 
-- **Validate out of time.** Fit only on days before the scored window and
-  score each user's first event, like the evaluation set. Never use random
-  row splits.
-- **Record official scores** in `results/official_scores.json` against the
-  exact SHA-256 of the uploaded CSV. The file is append-only; never edit or
-  remove earlier entries.
-- **Write up each experiment** in `docs/experiments/`: hypothesis, settings,
-  matched-row local results, and reproduction commands.
-- **Do not commit** datasets, artifacts, submissions or credentials.
+The best local result blends four runs. Component IDs, commands, seed selection, and available recipes are preserved in [`configs/experiments/`](configs/experiments/). These JSON files are provenance manifests, not a separate configuration loader. Read the [reproduction limits](docs/experiments/research-summary.md#reproducibility) before attempting an exact replay. The optional [research harness](research/README.md) documents the evaluator and original machine-specific automation.
+
+For a dependency-free starting point:
+
+```sh
+python3 src/starter_solution.py \
+  --train train.csv --evaluation evaluation.csv --out submission.csv
+```
+
+## Repository guide
+
+| Path | Contents |
+|---|---|
+| `src/` | Training, feature engineering, tree workers, and submission writer |
+| `research/` | Experiment launcher, evaluator, preflight checks, and research tooling |
+| `tests/` | Synthetic unit tests for models and experiment infrastructure |
+| `configs/experiments/` | Small saved run manifests and recipes |
+| `analysis/` | Data profiling code and aggregate audits |
+| `docs/experiments/` | Experiment reports, research summary, and archived leaderboard |
+| `results/` | Append-only official score provenance |
+| `requirements/` | Pinned dependencies for each pipeline |
+
+Datasets, model weights, feature arrays, predictions, run directories, environments, credentials, and cloned reference repositories stay outside Git. A fresh clone contains the source and evidence, not pretrained inference artifacts. This repository is a research project, not a deployed service.
+
+## References and development provenance
+
+The historical-click representation and auxiliary-training approach were informed by the public [ATU TechArena solution](https://github.com/jancastachova/techarena2026-atu). The [reference study](docs/REFERENCE_SOLUTION_STUDY.md) records the inspected commit, methodological differences, and attribution. Earlier CTR benchmarks use [FuxiCTR](https://github.com/reczoo/FuxiCTR). A later [public repository survey](docs/PUBLIC_TEAM_REPO_SEARCH.md) records additional hypotheses; finding an approach there does not mean it was implemented here.
+
+This team project used AI coding assistants for implementation, experiment automation, analysis, and documentation. The retained research tooling and notebooks document that workflow, including corrections to earlier claims. Results here are tied to recorded evaluations rather than generated estimates.

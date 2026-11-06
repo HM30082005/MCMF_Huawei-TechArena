@@ -8,6 +8,31 @@ this handoff.
 
 ## 1. Start here
 
+**Consolidated experiment queue:** See [Experiment priorities](experiement%20priorities.md)
+for the three user-agreed priority levels, descriptions, implementation-effort
+estimates, runtime accounting, dependencies, and the improvement-only retention
+rule. Its consolidated assignments supersede older priority suggestions here.
+
+**Working decision, November 4, 2026:** Keep LightGBM as the tree learner for
+now; model-family selection is deferred, not settled permanently. Revisit
+LightGBM versus CatBoost/other learners after the current data, representation,
+objective, auxiliary-supervision, feature, training/ensemble, and validation
+decisions have been explored. No-click event inclusion is already decided:
+retain these events in main training and evaluation.
+
+**User-prioritized experiment, November 4, 2026:** Test separate recent and
+long-term history signals rather than selecting one hard history cutoff.
+Start with candidate-match scores from the last 24 hours, last seven days,
+and all available permitted pre-event clicks, plus counts for each window;
+let LightGBM learn how to combine them. These are overlapping windows.
+Define empty-window handling and record actual history coverage, including
+whether any count cap is applied. Compare against the unchanged baseline on
+the same chronological validation events, using the same available-click
+policy and strictly excluding current/future clicks. This is a priority to
+consider, not an implemented or proven improvement; prior failed recency
+experiments do not directly test these separate signals. No new training run
+is authorized merely by recording this preference.
+
 **The current official baseline is ROC AUC 0.816323 for our LightGBM CSV.**
 The user reported this competition result on October 31, 2026. We verified
 the local file checksum, but did not inspect the competition page. The
@@ -335,6 +360,66 @@ access to the unknown data generator.
 
 ## 7. Technical improvements: strengthen the existing approach
 
+**User-set matching/ensemble priorities, November 4, 2026:** First priority
+is **cosine similarity from the current shared item embeddings**, initially
+as an additional LightGBM feature alongside the trained dot-product score.
+Normalize each seed's pooled history vector and candidate vector, compute
+cosine within that seed, then aggregate scalar similarities across seeds;
+never average embedding coordinates between independently trained seeds.
+Define zero/empty-vector handling. Existing spectral cosine features are
+already present; this test specifically adds shared-MF cosine information.
+
+Third priority, one level below second, includes all other matching/ensemble
+changes from the preceding discussion: a learned matching function (e.g. a
+small neural network), fewer/more than ten seeds, unequal model weights,
+ensembles of different successful recipes, and averaging final probabilities
+from separately fitted pipelines versus averaging score components before
+LightGBM. These explicit priorities supersede earlier higher prioritization
+of seed-count/ensemble-size tests; duration/initialization experiments and
+other separately assigned priorities are unchanged. Keep dot product and
+ten-seed equal component averaging as baselines. Select changes on identical
+chronological development rows and retain only supported improvements in
+final LightGBM pipeline AUC, recording compute cost. These are queued tests,
+not implementation changes or completed experiments.
+
+**User-set history-aggregation priorities, November 4, 2026:** Keep mean
+pooling as the baseline. First priority alternatives are **candidate-specific
+attention**, **sequence-aware self-attention**, and **learned weighted
+averaging** (candidate-independent learned history weights). Third priority
+alternatives are **recency-weighted averaging**, **max pooling**, and
+**multiple interest vectors**. No pooling alternative is assigned second
+priority. These explicit priorities supersede earlier recommendations to
+defer attention/sequence models based on historical negative results.
+
+Compare alternatives with the same permitted history pool, dimensions,
+auxiliary task, and final LightGBM evaluation protocol; declare necessary
+architecture-specific training/regularization changes and equal tuning
+budgets. Sequence-aware models must exclude target/future clicks. Test
+separately, record validation AUC changes and compute costs, and retain only
+supported positive improvements over the mean-pooling baseline.
+
+Scope clarification: "all else as third priority" applies to alternatives
+to mean pooling in the preceding discussion, not every other project test.
+It moves the multiple-interest representation experiment to third priority
+(superseding its earlier second-priority feature-list placement). It does
+not demote the already first-priority separate recent/long-term mean scores,
+nor change masking/cropping, embedding-size, auxiliary-weight, adaptive-loss,
+or other behavioral-feature priorities.
+
+**User-set embedding-size priorities, November 4, 2026:** Keep 32 dimensions
+as the unchanged baseline. Testing **64 dimensions is first priority**;
+testing **16 dimensions is second priority**, alongside the other experiments
+at those respective levels. These explicit priorities supersede earlier
+suggestions below to defer larger dimensions based on reference results.
+Compare each size against 32 on identical chronological validation events,
+initially holding other settings fixed. Give promising sizes a small, equal
+regularization/training-duration tuning budget to distinguish capacity effects
+from unsuitable settings. Evaluate final LightGBM AUC across the planned
+windows and seed checks, training versus validation behavior, and compute
+cost. Retain only supported positive improvements; keep 32 when evidence is
+inconclusive. These are queued tests, not an implemented dimension change or
+measured improvement.
+
 These improve experiment reliability, fitting, or use of existing signals.
 They do not assume access to new ground-truth labels. Priorities indicate
 recommended order, not guaranteed score gains.
@@ -418,6 +503,75 @@ of an untouched confirmation result.
 
 ### T4 — Tree fitting policy, feature ablations, and modest tuning
 
+**User-set feature experiment priorities, November 4, 2026:** These extend
+the existing experiment priorities; they do not replace the P2 augmentation
+and auxiliary-weight priorities. Test additions against the current feature
+set on identical chronological validation rows, individually before combining
+promising groups. All estimates must use permitted earlier information.
+**User-required retention rule:** Measure whether each individual clue makes
+the full pipeline's chronological-validation global AUC better or worse
+against the same baseline, holding other settings fixed. Record the AUC
+change for every clue, including negative and inconclusive results. Keep
+only clues with supported positive improvements; do not retain worsening
+or inconclusive additions by default. Check promising additions across the
+planned validation windows and seed checks rather than accepting a single
+noisy increase. Recheck the combined retained set, since individually useful
+clues may not improve results together, and remove additions that no longer
+provide a positive contribution in that combination.
+
+First priority (the first five clues in the discussion):
+
+1. Recent versus long-term candidate-interest matches: separate last-24-hour,
+   last-seven-day, and all-available-history signals plus counts. This is the
+   same already-prioritized multi-window experiment, not a duplicate run.
+2. Interest change: difference between recent and older preference vectors;
+   define windows explicitly and handle missing/short histories.
+3. Activity change: recent click frequency versus the user's earlier baseline;
+   account for incomplete supplied-history coverage rather than assuming
+   missing clicks imply inactivity.
+4. Item momentum: changes in recent versus longer-term click rates and/or
+   exposure volume; existing recent-rate features are already present, so
+   evaluate incremental change signals with support counts and smoothing.
+5. Ordered item transitions: fitting-period evidence that B follows A, used
+   with the user's last known click. Unlike co-click similarity, this retains
+   direction. Earlier weak sequence results are background evidence, not a
+   reason to demote this explicitly user-prioritized test.
+
+Second priority (the remaining four clues):
+
+6. Recent activity bursts: distinguish closely spaced clicks from returns
+   after long gaps; clicks alone provide partial activity/session evidence.
+7. Previous user-candidate exposures without clicks: counts and timing from
+   real earlier labelled displays only, with missing-coverage indicators.
+8. Multiple interest groups: candidate matches to separate groups of history
+   item vectors rather than only their overall mean; these groups are learned
+   relationships, not supplied semantic categories.
+9. Similarity between competing candidates: direct pairwise candidate-vector
+   similarities and summaries, beyond existing relative-score features.
+
+These are recorded priorities, not implemented features or measured gains.
+
+**Feature-input improvements: assigned priorities, November 4, 2026.** At
+the user's request, prioritize the six changes discussed for the 70-signal
+input stage as follows. These extend the queue without changing previously
+explicit priorities for individual feature ideas or pooling alternatives.
+
+| Priority | Change | Reason and scope |
+|---|---|---|
+| 1 | Add useful signals | Follow the existing per-signal priority assignments (including first-priority history-window signals and shared-MF cosine); do not promote every new feature to first priority. |
+| 1 | Extend existing summaries to reconstructed histories | Test recency, time-gap, and other missing long-history summaries against the supplied-history versions; long-history length, diversity count, and candidate repeat count already exist. |
+| 1 | Remove unhelpful feature groups | Run matched group-removal comparisons to identify noise/redundancy; retain removals only when they support a positive AUC improvement. |
+| 2 | Improve sparse-data handling | Test bounded changes to rate smoothing and support/coverage signals beyond those already present. |
+| 2 | Make missing information explicit | Audit existing indicators first; test additions distinguishing unavailable evidence from an observed zero or no match. |
+| 3 | Add explicit relationships between signals | Try a small set of justified combinations, such as match score by history support, because LightGBM already learns interactions. |
+
+Use identical chronological validation rows and the full LightGBM pipeline,
+initially holding embeddings and unrelated settings fixed. Record each
+addition/removal's AUC change, reject worsening or inconclusive changes,
+confirm supported improvements, and recheck their combined contribution.
+Only earlier permitted clicks are eligible; distinguish incomplete history
+coverage from inactivity. These are planned experiments, not executed tests.
+
 Compare the existing fixed iteration counts with an inner last-fitting-day
 early-stop/refit policy. Any scaling of iterations after adding data must be
 declared and tested, not assumed valid. Keep outer confirmation labels out
@@ -475,6 +629,22 @@ None is implemented merely because it appears below.
 
 ### P1 — Recover additional real historical clicks — highest data priority
 
+**Rules review and priority, November 4, 2026:** The user asked to prioritize
+this test if competition rules permit it. The supplied `INSTRUCTIONS.md`
+defines evaluation histories as observed prior clicks and prohibits using
+held-out event labels for validation aggregates. It contains no explicit ban
+on fitting representations with supplied evaluation-history clicks, but also
+does not explicitly authorize evaluation-input training. Using strictly
+pre-cutoff history clicks as auxiliary positives appears consistent with
+this task description; this is an interpretation, not organizer confirmation.
+Public web searches did not locate the matching authoritative Phase 1 rules
+or an organizer clarification. Prioritize a local A/B audit/test under the
+batch-input interpretation below; eligibility for official submission remains
+unverified against any additional organizer rules. Do not invent negatives
+or impression denominators, use hidden/held-out target labels, or use later
+discarded validation events' histories. This records a test priority, not a
+completed experiment or authorization to run training now.
+
 The main unclosed reference difference is its use of pre-cutoff clicks from
 the **supplied histories of held-out/evaluation queries** during representation
 fitting. Those are observed historical positives, not the hidden evaluation
@@ -512,6 +682,77 @@ unobserved item as a factual negative. Historical counts and impression CTRs
 must remain separate quantities.
 
 ### P2 — More useful training views, especially for sparse histories
+
+**User-prioritized experiment, November 4, 2026: earlier-only historical
+training examples.** Extend the auxiliary training dataset by treating each
+known historical click as a target, using only that user's known clicks with
+timestamps strictly earlier than the target as context. For example, Sunday
+A and Monday B produce a Monday-B target with Sunday A as context; Tuesday C
+must never enter that example's context, even if C is before the overall
+fitting cutoff. Deduplicate target occurrences by (user, item, timestamp),
+retain distinct repeat clicks, and apply the fitting cutoff to all targets
+and context. Declare how targets with no earlier known clicks are handled;
+missing history is not evidence that no earlier clicks occurred.
+
+Compare with the current auxiliary task, which allows later-than-target
+context within the fitting period. Hold the available click pool, main
+impression task, alternative sampler, loss weight, and training budget fixed
+for the initial comparison. Historical alternatives remain sampled items,
+not reconstructed factual non-clicks. Evaluate on identical chronological
+validation events. First use the existing fitting-only click pool; separately
+test additional supplied query-history clicks under P1's availability/rules
+policy, so that data expansion and earlier-only context effects are distinct.
+This is a priority test, not an implemented change or measured improvement.
+
+**User-set priority order, November 4, 2026:** First priority includes the
+earlier-clicks-only historical extension comparison at auxiliary weight 0.1,
+**history masking/dropout**, and **history cropping**. Masking hides selected
+prior clicks; cropping retains a shorter contiguous part of the prior history.
+Test masking and cropping separately before combinations, preserving the
+target and the strictly earlier-than-target context rule. Declare augmentation
+rates/lengths, empty-context handling, and effective example weights. These
+are additional views of observed clicks, not new factual click records.
+Second priority, one level below first, includes auxiliary weight **0.3**,
+auxiliary weight **1.0**, **gradient-similarity adaptive auxiliary weighting**,
+and **contrastive learning**. Contrastive learning should compare augmented
+views of the same permitted prior history; its extra loss and weight must be
+specified and evaluated separately from masking/cropping alone. All four
+second-priority tests share the same priority level.
+Third priority, one level below second, is **GradNorm adaptive weighting**.
+Keep the context/data policy and other settings fixed for comparisons.
+For adaptive methods, measure task gradients on shared item embeddings and
+keep regularization separate from task-weight calculations. Compare final
+LightGBM chronological-validation AUC and compute cost against fixed-weight
+baselines. These are queued experiments, not implemented or executed tests.
+The wider grid below is background consideration, not an equally prioritized
+or user-requested sweep; the initial 0.1 comparison precedes the weight tests.
+
+**Auxiliary-weight research follow-up, November 4, 2026:** The user agreed to retain
+0.1 for the initial earlier-only comparison and requested consideration of
+other weights informed by research. Previously proposed fixed-weight screen:
+0, 0.01, 0.03, 0.1, 0.3, 1.0 (our experimental grid, not published optimal
+values for this dataset). Zero is the no-auxiliary control. After the matched
+0.1 comparison, screen weights with the earlier-only context policy fixed;
+confirm finalists with the intended ensemble and final LightGBM AUC on the
+same chronological validation rows. If comparing context-policy winners,
+allow the same small weight-search budget for both policies.
+
+Keep loss averaging, batch ratios, nine alternatives, available click pool,
+and fit budget fixed. Log main/auxiliary losses and, where practical, their
+gradient magnitudes and alignment on shared item embeddings. The current
+code multiplies auxiliary regularization by the auxiliary weight as well;
+declare whether the sweep tests this coupled recipe, or separately holds
+the auxiliary regularization coefficient fixed. Do not silently attribute
+that coupled effect solely to historical supervision strength.
+
+Research supports auxiliary next-behavior supervision (DIEN:
+https://arxiv.org/abs/1809.03672) and adaptive weighting as a later option:
+GradNorm balances gradient magnitudes/training rates
+(https://arxiv.org/abs/1711.02257); gradient-similarity weighting emphasizes
+auxiliary updates aligned with the main task
+(https://arxiv.org/abs/1812.02224). These methods do not establish an optimal
+weight for our model; follow the user-set priority order above. No new
+training runs have been executed for this note.
 
 The current auxiliary objective already uses other clicks and up to 100
 context items. Test several **views of those same known clicks**: random

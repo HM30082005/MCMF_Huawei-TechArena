@@ -1,0 +1,48 @@
+{
+  "id": "s14-seeds50-stale24h",
+  "hypothesis": "Extend seed curve to 50 seeds with 24h stale-context to beat t3-budget-seeds30's dev 0.802381",
+  "parent": "s13-seeds30-stale24h",
+  "git_commit": "d2a837c0aef2a870e07e88afe1bd61369d4afa62",
+  "command": ".venv/bin/python src/history_upgrade.py --output-dir runs/s14-seeds50-stale24h --steps 3000 --init-std 0.005 --seeds 50 --stale-context-hours 24 --until development --tree-candidates LightGBM:31",
+  "saved_recipe": {
+    "data_fingerprint": "92beb6b4b256731ab565078527703bffe10962b84150d7eb2853cc9ee2c68175",
+    "recipe": {
+      "version": 1,
+      "dim": 32,
+      "l2": 0.05,
+      "lr": 0.003,
+      "auxiliary_weight": 0.1,
+      "negatives": 9,
+      "history_limit": 100,
+      "init_std": 0.005,
+      "seeds": 50,
+      "steps": 3000,
+      "batch_events": 820,
+      "event_sampling": "independent uniform with replacement per seed",
+      "historical_inputs": "fitting histories and labels only; own query history at inference",
+      "stale_context_hours": 24.0
+    }
+  },
+  "seed_selection": {
+    "trials": [
+      {
+        "seeds": 1,
+        "development_auc": 0.7718753495907028
+      },
+      {
+        "seeds": 3,
+        "development_auc": 0.7806242903711191
+      },
+      {
+        "seeds": 5,
+        "development_auc": 0.7822137149634245
+      },
+      {
+        "seeds": 50,
+        "development_auc": 0.7844031509104721
+      }
+    ],
+    "selected_seeds": 50
+  },
+  "provenance": "Snapshot of local research run metadata; no model weights, per-row predictions, or labels included."
+}

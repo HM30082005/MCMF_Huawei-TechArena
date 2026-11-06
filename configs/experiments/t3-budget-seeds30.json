@@ -1,0 +1,47 @@
+{
+  "id": "t3-budget-seeds30",
+  "hypothesis": "3,000 MF updates + init std 0.005 + 30 seeds (extend seed curve 20",
+  "parent": "baseline-0.816323",
+  "git_commit": "506f0dcf1ed8a5cd8aefb41ee77eb879122b62e0",
+  "command": ".venv/bin/python src/history_upgrade.py --output-dir runs/t3-budget-seeds30 --steps 3000 --init-std 0.005 --seeds 30 --until development --tree-candidates LightGBM:31",
+  "saved_recipe": {
+    "data_fingerprint": "92beb6b4b256731ab565078527703bffe10962b84150d7eb2853cc9ee2c68175",
+    "recipe": {
+      "version": 1,
+      "dim": 32,
+      "l2": 0.05,
+      "lr": 0.003,
+      "auxiliary_weight": 0.1,
+      "negatives": 9,
+      "history_limit": 100,
+      "init_std": 0.005,
+      "seeds": 30,
+      "steps": 3000,
+      "batch_events": 820,
+      "event_sampling": "independent uniform with replacement per seed",
+      "historical_inputs": "fitting histories and labels only; own query history at inference"
+    }
+  },
+  "seed_selection": {
+    "trials": [
+      {
+        "seeds": 1,
+        "development_auc": 0.7722767112286437
+      },
+      {
+        "seeds": 3,
+        "development_auc": 0.781099275469638
+      },
+      {
+        "seeds": 5,
+        "development_auc": 0.7828093887250192
+      },
+      {
+        "seeds": 30,
+        "development_auc": 0.7850225127609266
+      }
+    ],
+    "selected_seeds": 30
+  },
+  "provenance": "Snapshot of local research run metadata; no model weights, per-row predictions, or labels included."
+}

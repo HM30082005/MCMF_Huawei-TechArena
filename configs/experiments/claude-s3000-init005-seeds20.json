@@ -1,0 +1,47 @@
+{
+  "id": "claude-s3000-init005-seeds20",
+  "hypothesis": "20 MF seeds instead of 10 (averaging curve still rising 5->10); parent claude-s3000-init005; code claude/mf-epoch-schedule@b521218",
+  "parent": "baseline-0.816323",
+  "git_commit": "96578dc5a0070f7eca5156af22f6d1592489c1b0",
+  "command": ".venv/bin/python /Users/mihailharetonenko/Hackathons/Huwawei Tech Arena/.claude/worktrees/huawei-arena-handoff-review-3bc1a6/src/history_upgrade.py --output-dir runs/claude-s3000-init005-seeds20 --steps 3000 --init-std 0.005 --seeds 20 --until development --tree-candidates LightGBM:31",
+  "saved_recipe": {
+    "data_fingerprint": "92beb6b4b256731ab565078527703bffe10962b84150d7eb2853cc9ee2c68175",
+    "recipe": {
+      "version": 1,
+      "dim": 32,
+      "l2": 0.05,
+      "lr": 0.003,
+      "auxiliary_weight": 0.1,
+      "negatives": 9,
+      "history_limit": 100,
+      "init_std": 0.005,
+      "seeds": 20,
+      "steps": 3000,
+      "batch_events": 820,
+      "event_sampling": "independent uniform with replacement per seed",
+      "historical_inputs": "fitting histories and labels only; own query history at inference"
+    }
+  },
+  "seed_selection": {
+    "trials": [
+      {
+        "seeds": 1,
+        "development_auc": 0.7727201015166698
+      },
+      {
+        "seeds": 3,
+        "development_auc": 0.7807330861516922
+      },
+      {
+        "seeds": 5,
+        "development_auc": 0.7825707430838493
+      },
+      {
+        "seeds": 20,
+        "development_auc": 0.7846883149695707
+      }
+    ],
+    "selected_seeds": 20
+  },
+  "provenance": "Snapshot of local research run metadata; no model weights, per-row predictions, or labels included."
+}

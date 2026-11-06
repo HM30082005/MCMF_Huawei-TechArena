@@ -1,0 +1,25 @@
+{
+  "id": "blend-refit-seeds-stale",
+  "hypothesis": "Equal blend of different MF fits beats any single run; components chosen on development rows only (0.802802 there)",
+  "parent": "t3-budget-seeds30",
+  "git_commit": "94882e611b1eb4a234ce9fd81009d479bb89e353",
+  "blend_of": [
+    "t3-budget-seeds30",
+    "t4-tree-refit",
+    "claude-s3000-init005-seeds20",
+    "s14-seeds50-stale24h"
+  ],
+  "weights": "equal, on the logit scale",
+  "submission": {
+    "rows": 529390,
+    "unique_rowids": 529390,
+    "sha256": "42592f972707ce95b0cdaca38aadba410b553fa74d88f662a86dab1e7179b685",
+    "min_probability": 0.00040786001319606464,
+    "max_probability": 0.7227045188032867,
+    "mean_probability": 0.061333743082336946,
+    "evaluation_roc_auc": null,
+    "evaluation_auc_reason": "evaluation.csv has no click labels; official scoring requires competition submission",
+    "filename": "submission_blend.csv"
+  },
+  "provenance": "Snapshot of local research run metadata; no model weights, per-row predictions, or labels included."
+}

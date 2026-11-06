@@ -16,3 +16,24 @@ __pycache__/
 # Independently cloned reference solutions.
 /external/
 *.csv.zip
+
+# Generated outputs and the separate local research worktree.
+/artifacts/
+/runs/
+/lab/
+/LEADERBOARD.md
+/.claude/
+/.codex/
+/submission*.csv
+
+# Keep model/data binaries and local archives out of source control.
+*.npy
+*.npz
+*.pt
+*.pth
+*.pkl
+*.parquet
+*.cbm
+*.zip
+*.tar
+*.tar.gz
