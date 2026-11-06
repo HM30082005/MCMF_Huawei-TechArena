@@ -25,8 +25,8 @@ cf_features = [f for f in all_features if f.startswith("cf_")]
 ctr_features = [f for f in all_features if "ctr" in f.lower()]
 extended_history_features = [f for f in all_features if f.startswith("long_")]
 time_features = [f for f in all_features if f in ["time_bucket", "utc_hour", "weekend"]]
-basic_features = [f for f in all_features if f not in mf_features and not f.startswith("spectral_") 
-                  and not f.startswith("cf_") and "ctr" not in f.lower() 
+basic_features = [f for f in all_features if f not in mf_features and not f.startswith("spectral_")
+                  and not f.startswith("cf_") and "ctr" not in f.lower()
                   and not f.startswith("long_") and f not in time_features]
 
 print(f"\nFeature group sizes:")

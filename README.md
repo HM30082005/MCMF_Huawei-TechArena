@@ -4,7 +4,7 @@ An experimental recommendation pipeline that predicts clicks from anonymous user
 
 **Recorded official ROC AUC: 0.816323.** Later research reached **0.824787 on local confirmation**, a **+0.002280** improvement over the same baseline on matched rows. The later result is a local experiment, not an official score.
 
-For a quick review: [results and lessons](docs/experiments/research-summary.md) · [model implementation](src/history_upgrade.py) · [evaluation harness](research/evaluate.py) · [tests](tests/)
+For a quick review: [experiment progression](docs/PROGRESS.md) · [results and lessons](docs/experiments/research-summary.md) · [model implementation](src/history_upgrade.py) · [evaluation harness](research/evaluate.py) · [tests](tests/)
 
 ## The problem
 

@@ -135,4 +135,3 @@ The following table records the initial GitHub README search for every supplied 
 | 75 | Learn2Rec | 0 |
 
 Additional discovery queries included `techarena 2026`, `techarena Ireland in:readme`, `"techarena" CTR in:readme`, `"history_item_ids" "clicked" in:readme`, and `"predicted_probability" "Huawei" in:readme`. Name-only SignalRank hits inspected concerned a different recruitment-ranking hackathon and were excluded.
-
