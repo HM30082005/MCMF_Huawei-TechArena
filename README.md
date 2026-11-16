@@ -1,10 +1,20 @@
 # MCMF · Click Prediction for Huawei TechArena 2026
 
+- **Problem:** predict which of 10 recommended items a user will click, learning from 6.9 million labelled rows of anonymous interactions.
+- **Result:** official ROC AUC **0.816323**. On one fixed local check, the work went from 0.6141 (starter solution) to 0.822508 (the submitted model). Later research reached **0.824787** on that check, +0.002280 over the submitted model on matched rows; that is a local experiment, not an official score.
+- **My role:** team of two. I led strategy, owned the evaluation harness, and set up and supervised the AI research agent. [Details below](#my-role).
+
 An experimental recommendation pipeline that predicts clicks from anonymous user–item interactions. The project covers parsing millions of impressions, reconstructing historical clicks, learning item representations, training boosted trees, and evaluating experiments on chronological windows.
 
-**Recorded official ROC AUC: 0.816323.** Later research reached **0.824787 on local confirmation**, a **+0.002280** improvement over the same baseline on matched rows. The later result is a local experiment, not an official score.
-
 For a quick review: [experiment progression](docs/PROGRESS.md) · [results and lessons](docs/experiments/research-summary.md) · [model implementation](src/history_upgrade.py) · [evaluation harness](research/evaluate.py) · [tests](tests/)
+
+## My role
+
+MCMF was a team of two. My part of the work:
+
+- **Strategy and team lead.** I chose which directions to pursue, coordinated the work, and handled submissions.
+- **Evaluation harness.** I owned the [scoring windows, error margins and promotion rules](research/README.md) and the [tests](tests/) behind them. Every model is scored only on days it never trained on, and an idea counts only if its gain clears a fixed threshold with a positive error margin on two separate days.
+- **AI-agent research setup.** I wrote the [standing rules](research/lab/AGENTS.md) for an autonomous research agent, ran it, and reviewed and corrected its runs. See [How AI agents were used](#how-ai-agents-were-used).
 
 ## The problem
 
@@ -60,6 +70,19 @@ The official result was reported by the team and linked to a locally verified su
 - Confirmation has been reused, including in earlier development. It is a sanity check, not an untouched test set. Bootstrap intervals exclude model selection and temporal uncertainty.
 
 The [research report](docs/experiments/research-summary.md) explains diminishing returns from more seeds, corrected ablation bugs, and weak performance for sparse or stale histories.
+
+## How AI agents were used
+
+AI coding assistants helped with implementation, experiment automation, analysis, and documentation. Part of the experiment search was also run by an autonomous research agent (Hermes), woken on a schedule and working from [written standing instructions](research/lab/AGENTS.md). The agent was fast at trying ideas, so the work went into making sure it could not fool itself or us:
+
+- **The agent never scores its own runs.** A separate [evaluator](research/evaluate.py) owns the labels and writes the only trusted leaderboard.
+- **One change per run.** A [preflight check](research/preflight.py) refuses a launch with uncommitted code, failing tests, an untested option, or more than one change from its parent run.
+- **A reserved check with a budget.** Ideas are searched on one window only. The reserved day is limited to two looks per day, enforced by the evaluator.
+- **People decide what is uploaded.** Official submissions are never automated.
+
+The rules did not catch everything. A review on 4 November 2026 found agent runs that had not tested what they claimed: a lookup bug that loaded zero extra clicks, feature tests that quietly restored old features, a blend measured on the reserved labels against the rules, and runs that crashed before producing a result. Those runs were excluded and redone correctly where still worth testing; none affected the uploaded submission. The [progress report](docs/PROGRESS.md#runs-that-dont-count) lists them, and the [lab notebook](research/lab/NOTES.md) keeps the original entries next to the corrections.
+
+The lesson: an agent's claims need independent evidence. Results in this repository come from the evaluator, not from what the agent reported.
 
 ## Run locally
 
@@ -133,6 +156,6 @@ Datasets, model weights, feature arrays, predictions, run directories, environme
 
 ## References and development provenance
 
-The historical-click representation and auxiliary-training approach were informed by the public [ATU TechArena solution](https://github.com/jancastachova/techarena2026-atu). The [reference study](docs/REFERENCE_SOLUTION_STUDY.md) records the inspected commit, methodological differences, and attribution. Earlier CTR benchmarks use [FuxiCTR](https://github.com/reczoo/FuxiCTR). A later [public repository survey](docs/PUBLIC_TEAM_REPO_SEARCH.md) records additional hypotheses; finding an approach there does not mean it was implemented here.
+The historical-click representation and auxiliary-training approach were informed by the public [ATU TechArena solution](https://github.com/jancastachova/techarena2026-atu). The [reference study](docs/REFERENCE_SOLUTION_STUDY.md) records the inspected commit, methodological differences, and attribution. Earlier CTR benchmarks use [FuxiCTR](https://github.com/reczoo/FuxiCTR).
 
-This team project used AI coding assistants for implementation, experiment automation, analysis, and documentation. The retained research tooling and notebooks document that workflow, including corrections to earlier claims. Results here are tied to recorded evaluations rather than generated estimates.
+The retained research tooling and notebooks document the [AI-assisted workflow](#how-ai-agents-were-used), including corrections to earlier claims. Results here are tied to recorded evaluations rather than generated estimates.
