@@ -8,7 +8,7 @@ this handoff.
 
 ## 1. Start here
 
-**Consolidated experiment queue:** See [Experiment priorities](experiement%20priorities.md)
+**Consolidated experiment queue:** See [Experiment priorities](experiment-priorities.md)
 for the three user-agreed priority levels, descriptions, implementation-effort
 estimates, runtime accounting, dependencies, and the improvement-only retention
 rule. Its consolidated assignments supersede older priority suggestions here.
